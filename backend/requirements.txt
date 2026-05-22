@@ -8,14 +8,16 @@ pydantic-settings>=2.2
 httpx>=0.27
 aiofiles>=23.2
 
-# ASR
-whisperx>=3.8
-torch>=2.0
-torchaudio>=2.0
-
-# FunASR（国内 ASR + 说话人分离，模型从 ModelScope 下载）
+# FunASR（国内 ASR + 说话人分离，模型从 ModelScope 下载，推荐）
 funasr>=1.0
 modelscope
+
+# WhisperX（可选，仅当使用 WhisperX 引擎时需要）
+# 注意：Python 3.13 + Windows 下 whisperx 不可用（PyTorch 尚未适配）
+# 此时只使用 FunASR 即可，功能完整
+# whisperx>=3.8
+# torch>=2.0
+# torchaudio>=2.0
 
 # Audio
 pydub>=0.25

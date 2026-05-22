@@ -56,8 +56,14 @@ def _process_sync(project_id: str, file_path: str, file_hash: str = ""):
                     project.original_audio = str(audio_path)
 
                 # Step 2: 加载 WhisperX 模型
-                import whisperx
-                import torch
+                try:
+                    import whisperx
+                    import torch
+                except ImportError:
+                    project.status = "error"
+                    project.last_error = "WhisperX 未安装。请安装: pip install whisperx>=3.8 torch>=2.0，或切换到 FunASR 引擎。"
+                    await session.commit()
+                    return
 
                 # 从用户设置中读取模型大小，默认 medium
                 import json
