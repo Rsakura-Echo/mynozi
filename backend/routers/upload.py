@@ -29,10 +29,10 @@ def _get_asr_model() -> str:
     if settings_file.exists():
         try:
             data = json.loads(settings_file.read_text(encoding="utf-8"))
-            return data.get("asr_model", "whisperx")
+            return data.get("asr_model", "funasr")
         except Exception:
             pass
-    return "whisperx"
+    return "funasr"
 
 
 async def _copy_from_cache(
