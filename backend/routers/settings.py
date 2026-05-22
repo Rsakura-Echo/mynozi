@@ -314,36 +314,60 @@ async def download_model(body: DownloadModelRequest):
 
 
 def _install_whisperx(python_exe: str):
-    """安装 whisperx：依次尝试默认源 → 清华 → 阿里云镜像。
+    """安装 whisperx：先确保 torch 已装，再装 whisperx。
 
-    不预设单一源，适配 VPN 开启/关闭两种网络环境。
+    分步安装避免依赖解析冲突。依次尝试默认源 → 清华 → 阿里云。
     """
     import subprocess
 
-    # pip 源列表（默认源走系统 pip.conf 或 PyPI 官方）
     sources = [
-        ("默认源", []),                                              # 走 pip 配置或 PyPI
-        ("清华镜像", ["-i", "https://pypi.tuna.tsinghua.edu.cn/simple"]),
-        ("阿里云镜像", ["-i", "https://mirrors.aliyun.com/pypi/simple/"]),
+        ("默认源", []),
+        ("清华镜像", ["-i", "https://pypi.tuna.tsinghua.edu.cn/simple",
+                      "--trusted-host", "pypi.tuna.tsinghua.edu.cn"]),
+        ("阿里云镜像", ["-i", "https://mirrors.aliyun.com/pypi/simple/",
+                       "--trusted-host", "mirrors.aliyun.com"]),
     ]
 
-    last_error = None
-    for name, extra_args in sources:
-        print(f"[settings] Trying pip source: {name}")
-        try:
-            cmd = [python_exe, "-m", "pip", "install", "whisperx", "torch", "torchaudio"]
-            cmd.extend(extra_args)
-            subprocess.check_call(cmd, timeout=600)
-            print(f"[settings] pip install succeeded via {name}")
-            return
-        except subprocess.CalledProcessError as e:
-            print(f"[settings] pip {name} failed: {e}")
-            last_error = str(e)
-        except subprocess.TimeoutExpired:
-            print(f"[settings] pip {name} timeout")
-            last_error = "下载超时（>10分钟）"
+    def _try_pip(packages: list[str]) -> None:
+        last_error = None
+        for name, extra_args in sources:
+            print(f"[settings] pip install {packages} via {name}...")
+            try:
+                cmd = [python_exe, "-m", "pip", "install", "--upgrade"]
+                cmd.extend(extra_args)
+                cmd.extend(packages)
+                # 打印完整命令方便调试
+                print(f"[settings]   {' '.join(cmd)}")
+                subprocess.check_call(cmd, timeout=900)
+                print(f"[settings] pip {name} succeeded for {packages}")
+                return
+            except subprocess.CalledProcessError as e:
+                print(f"[settings] pip {name} error: {e}")
+                last_error = str(e)
+            except subprocess.TimeoutExpired:
+                print(f"[settings] pip {name} timeout")
+                last_error = "下载超时（>15分钟）"
+        raise RuntimeError(f"{packages} 安装失败: {last_error}")
 
-    raise RuntimeError(f"所有 pip 源均失败（{last_error}）。请检查网络连接后重试。")
+    # Step 1: 确保 PyTorch 已安装（start.bat 通常已装好）
+    try:
+        import torch  # noqa: F401
+        print("[settings] torch already installed")
+    except ImportError:
+        print("[settings] Installing torch + torchaudio...")
+        try:
+            _try_pip(["torch", "torchaudio"])
+        except RuntimeError:
+            # torch 从 PyPI 装不上，尝试 PyTorch 官方源
+            print("[settings] Trying PyTorch official source...")
+            subprocess.check_call(
+                [python_exe, "-m", "pip", "install", "torch", "torchaudio",
+                 "--index-url", "https://download.pytorch.org/whl/cpu"],
+                timeout=900,
+            )
+
+    # Step 2: 安装 whisperx（torch 已就位，无需重复下载）
+    _try_pip(["whisperx"])
 
 
 def _download_whisperx_model(size: str):
