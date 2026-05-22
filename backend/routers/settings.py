@@ -332,22 +332,24 @@ def _install_whisperx(python_exe: str):
         last_error = None
         for name, extra_args in sources:
             print(f"[settings] pip install {packages} via {name}...")
+            cmd = [python_exe, "-m", "pip", "install", "--upgrade"]
+            cmd.extend(extra_args)
+            cmd.extend(packages)
+            print(f"[settings]   {' '.join(cmd)}")
             try:
-                cmd = [python_exe, "-m", "pip", "install", "--upgrade"]
-                cmd.extend(extra_args)
-                cmd.extend(packages)
-                # 打印完整命令方便调试
-                print(f"[settings]   {' '.join(cmd)}")
-                subprocess.check_call(cmd, timeout=900)
-                print(f"[settings] pip {name} succeeded for {packages}")
-                return
-            except subprocess.CalledProcessError as e:
-                print(f"[settings] pip {name} error: {e}")
-                last_error = str(e)
+                r = subprocess.run(cmd, capture_output=True, text=True, timeout=900)
+                if r.returncode == 0:
+                    print(f"[settings] pip {name} succeeded for {packages}")
+                    return
+                # 把 pip 的真实错误打出来
+                err_tail = r.stderr.strip().splitlines()[-5:] if r.stderr else []
+                err_msg = "\n".join(err_tail) if err_tail else r.stdout.strip()[-500:]
+                print(f"[settings] pip {name} FAILED:\n{err_msg}")
+                last_error = err_msg or f"exit code {r.returncode}"
             except subprocess.TimeoutExpired:
                 print(f"[settings] pip {name} timeout")
                 last_error = "下载超时（>15分钟）"
-        raise RuntimeError(f"{packages} 安装失败: {last_error}")
+        raise RuntimeError(f"{packages} 安装失败:\n{last_error}")
 
     # Step 1: 确保 PyTorch 已安装（start.bat 通常已装好）
     try:
