@@ -250,15 +250,23 @@ export default function WaveformViewer({
       }
     });
 
-    // ── 2. Waveform bars (real amplitude data) ──
+    // ── 2. Waveform bars ──
     const useReal = peaks.length > 0;
-    const barCount = useReal ? peaks.length : Math.min(300, Math.floor(w / 2));
-    const barW = w / barCount;
+    const BAR_PX = 2.5;  // 每根柱子固定像素宽度
+    const barCount = Math.floor(w / BAR_PX);
+    const barW = BAR_PX;
 
     for (let i = 0; i < barCount; i++) {
       const t = (i / barCount) * totalDur;
       const s = sentences.find(x => t >= x.start_time && t <= x.end_time);
-      const amp = useReal ? peaks[i] : pseudoAmp(i);
+      let amp: number;
+      if (useReal) {
+        // 从 peaks 数据中采样对应位置
+        const peakIdx = Math.floor((i / barCount) * peaks.length);
+        amp = peaks[peakIdx] || 0;
+      } else {
+        amp = pseudoAmp(i);
+      }
       const barH = Math.max(1, amp * waveH * 0.7);
       const x = i * barW;
 
@@ -267,7 +275,7 @@ export default function WaveformViewer({
       } else {
         ctx.fillStyle = 'rgba(100,100,120,0.3)';
       }
-      ctx.fillRect(x, mid - barH / 2, barW * 0.6, barH);
+      ctx.fillRect(x, mid - barH / 2, barW - 0.5, barH);
     }
 
     // ── 3. Sentence dividers ──
@@ -373,7 +381,7 @@ export default function WaveformViewer({
         {hoveredSentence && (() => {
           const scrollLeft = containerRef.current?.scrollLeft || 0;
           const contLeft = containerRef.current?.getBoundingClientRect().left || 0;
-          const hoverLeft = (hoveredSentence.start_time / totalDur) * canvasW;
+          const hoverRight = (hoveredSentence.end_time / totalDur) * canvasW;
           return (
             <>
               <div style={{
@@ -392,7 +400,7 @@ export default function WaveformViewer({
                 {formatTime(cursorTime)}
               </div>
               <div style={{
-                position: 'absolute', top: 4, left: hoverLeft - 22,
+                position: 'absolute', top: 4, left: hoverRight - 24,
                 zIndex: 3, display: 'flex', gap: 3,
               }}>
                 <button onClick={e => { e.stopPropagation(); onDeleteSentence(hoveredSentence.id); setHoveredSentence(null); }}
