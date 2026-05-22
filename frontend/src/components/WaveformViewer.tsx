@@ -72,7 +72,8 @@ export default function WaveformViewer({
     const timeAtMouse = (mouseX / canvasW) * totalDur;
 
     const factor = e.deltaY < 0 ? 1.25 : 0.8;
-    const nextPxPerSec = Math.max(20, Math.min(500, pxPerSec * factor));
+    const minPxPerSec = Math.max(3, MIN_CANVAS_WIDTH / Math.max(totalDur, 0.1));
+    const nextPxPerSec = Math.max(minPxPerSec, Math.min(500, pxPerSec * factor));
     setPxPerSec(nextPxPerSec);
 
     // 缩放后恢复鼠标位置（下一帧执行，直接用计算出的新值避免闭包过期）
@@ -286,55 +287,67 @@ export default function WaveformViewer({
       }
     });
 
-    // ── 2. Waveform — 平滑连续曲线（线性插值 + 1.5px 细柱）──
+    // ── 2. Waveform — 标准柱状波形（每像素取一个峰值）──
     const useReal = peaks.length > 0;
-    const BAR_W = 1.5;
-    const barCount = Math.floor(w / BAR_W);
     const totalPeaks = peaks.length;
 
-    for (let i = 0; i < barCount; i++) {
-      const t = (i / barCount) * totalDur;
-      const s = sentences.find(x => t >= x.start_time && t <= x.end_time);
+    for (let x = 0; x < w; x++) {
+      const t = (x / w) * totalDur;
+      const s = sentences.find(sen => t >= sen.start_time && t <= sen.end_time);
 
       let amp: number;
       if (useReal) {
-        // 线性插值让波形平滑连续
-        const floatIdx = (i / barCount) * totalPeaks;
-        const idx0 = Math.floor(floatIdx);
-        const idx1 = Math.min(idx0 + 1, totalPeaks - 1);
-        const frac = floatIdx - idx0;
-        amp = peaks[idx0] * (1 - frac) + peaks[idx1] * frac;
+        const idx = Math.floor((x / w) * totalPeaks);
+        amp = peaks[Math.min(idx, totalPeaks - 1)];
       } else {
-        amp = pseudoAmp(i);
+        amp = pseudoAmp(x);
       }
 
-      const barH = Math.max(0.5, amp * waveH * 0.7);
-      const x = i * BAR_W;
+      const barH = Math.max(1, amp * waveH * 0.6);
 
       if (s && s.speaker_id) {
         ctx.fillStyle = SPEAKER_COLORS[speakerMap[s.speaker_id] % SPEAKER_COLORS.length];
       } else {
-        ctx.fillStyle = 'rgba(100,100,120,0.35)';
+        ctx.fillStyle = 'rgba(100,100,120,0.4)';
       }
-      ctx.fillRect(x, mid - barH / 2, BAR_W, barH);
+      ctx.fillRect(x, mid - barH / 2, 1, barH);
     }
 
     // ── 3. Sentence dividers ──
     sentences.forEach(s => {
       const x1 = (s.start_time / totalDur) * w;
+      const x2 = (s.end_time / totalDur) * w;
+      const waveBottom = waveTop + waveH;
+
+      // 起始分隔线 + 顶部三角
       ctx.strokeStyle = 'rgba(255,255,255,0.12)';
       ctx.lineWidth = 2;
       ctx.beginPath();
       ctx.moveTo(x1, waveTop);
-      ctx.lineTo(x1, waveTop + waveH);
+      ctx.lineTo(x1, waveBottom);
       ctx.stroke();
-      // Top triangle marker
       ctx.fillStyle = 'rgba(255,255,255,0.25)';
       ctx.beginPath();
       ctx.moveTo(x1 - 4, waveTop);
       ctx.lineTo(x1 + 4, waveTop);
       ctx.lineTo(x1, waveTop + 6);
       ctx.fill();
+
+      // 结束分隔线 + 底部三角（仅在末尾没有紧接下一句时显示完整标记）
+      if (x2 - x1 > 6) {
+        ctx.strokeStyle = 'rgba(255,255,255,0.10)';
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.moveTo(x2, waveTop);
+        ctx.lineTo(x2, waveBottom);
+        ctx.stroke();
+        ctx.fillStyle = 'rgba(255,255,255,0.20)';
+        ctx.beginPath();
+        ctx.moveTo(x2 - 4, waveBottom);
+        ctx.lineTo(x2 + 4, waveBottom);
+        ctx.lineTo(x2, waveBottom - 6);
+        ctx.fill();
+      }
     });
 
     // ── 4. Speaker bar ──
