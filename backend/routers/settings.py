@@ -313,6 +313,39 @@ async def download_model(body: DownloadModelRequest):
     return _download_state
 
 
+def _install_whisperx(python_exe: str):
+    """安装 whisperx：依次尝试默认源 → 清华 → 阿里云镜像。
+
+    不预设单一源，适配 VPN 开启/关闭两种网络环境。
+    """
+    import subprocess
+
+    # pip 源列表（默认源走系统 pip.conf 或 PyPI 官方）
+    sources = [
+        ("默认源", []),                                              # 走 pip 配置或 PyPI
+        ("清华镜像", ["-i", "https://pypi.tuna.tsinghua.edu.cn/simple"]),
+        ("阿里云镜像", ["-i", "https://mirrors.aliyun.com/pypi/simple/"]),
+    ]
+
+    last_error = None
+    for name, extra_args in sources:
+        print(f"[settings] Trying pip source: {name}")
+        try:
+            cmd = [python_exe, "-m", "pip", "install", "whisperx", "torch", "torchaudio"]
+            cmd.extend(extra_args)
+            subprocess.check_call(cmd, timeout=600)
+            print(f"[settings] pip install succeeded via {name}")
+            return
+        except subprocess.CalledProcessError as e:
+            print(f"[settings] pip {name} failed: {e}")
+            last_error = str(e)
+        except subprocess.TimeoutExpired:
+            print(f"[settings] pip {name} timeout")
+            last_error = "下载超时（>10分钟）"
+
+    raise RuntimeError(f"所有 pip 源均失败（{last_error}）。请检查网络连接后重试。")
+
+
 def _download_whisperx_model(size: str):
     """后台任务：自动安装 whisperx 库 + 下载 faster-whisper 模型。
 
@@ -334,23 +367,12 @@ def _download_whisperx_model(size: str):
         )
         print("[settings] Installing whisperx...")
         try:
-            # 使用清华镜像加速
-            subprocess.check_call(
-                [sys.executable, "-m", "pip", "install", "whisperx", "torch", "torchaudio",
-                 "-i", "https://pypi.tuna.tsinghua.edu.cn/simple", "--quiet"],
-                timeout=600,
-            )
+            _install_whisperx(sys.executable)
             print("[settings] whisperx installed successfully")
-        except subprocess.CalledProcessError as e:
+        except Exception as e:
             _download_state.update(
                 status="error",
-                message=f"WhisperX 库安装失败: pip install 出错，请检查网络后重试",
-            )
-            return
-        except subprocess.TimeoutExpired:
-            _download_state.update(
-                status="error",
-                message="WhisperX 库安装超时（>10分钟），请检查网络后重试",
+                message=f"WhisperX 库安装失败: {e}",
             )
             return
 
