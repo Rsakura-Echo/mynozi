@@ -43,7 +43,19 @@ echo 检测到: !PYCMD!
 :: ── Check Python version ──
 for /f "tokens=2" %%v in ('!PYCMD! --version 2^>^&1') do set PYVER=%%v
 echo Python 版本: !PYVER!
-echo 版本兼容 ✓ （editdistance 使用纯 Python 替代，无需 C 编译）
+
+for /f "tokens=2 delims=." %%m in ("!PYVER!") do set PYMNR=%%m
+if !PYMNR! geq 14 (
+    echo.
+    echo [提示] Python 3.14+ 需从 PyTorch nightly 下载（~2.7GB，较慢）
+    echo 推荐安装 Python 3.12 以加速首次安装：
+    echo   1. 在命令行输入: py -3.12
+    echo   2. 会自动跳转 Microsoft Store 安装，几十秒完成
+    echo   3. 然后删除 .venv 重新运行本脚本即可
+    echo.
+    echo 继续将使用 Python !PYVER! + PyTorch nightly...
+)
+echo 版本兼容 ✓
 
 :: ── Check ffmpeg ──
 echo.
@@ -76,6 +88,10 @@ echo.
 echo [4/5] 安装 Python 依赖（首次约 2-5 分钟，请耐心等待）...
 echo.
 
+:: 配置国内镜像加速
+set PIP_INDEX=https://pypi.tuna.tsinghua.edu.cn/simple
+echo → 使用清华镜像加速下载
+
 :: 预先安装纯 Python editdistance 替代（修复 Python 3.13+ 编译问题）
 echo → 预处理 editdistance 兼容层...
 pip install -q backend\_editdistance_py
@@ -87,7 +103,7 @@ if %errorlevel% neq 0 (
 echo → 安装 PyTorch...
 for /f "tokens=2 delims=." %%m in ("!PYVER!") do set PYMNR=%%m
 if !PYMNR! geq 14 (
-    echo   Python 3.14+ 使用 PyTorch nightly 版本...
+    echo   Python 3.14+ 需要 PyTorch nightly（约 2.7GB，请耐心等待）...
     pip install torch torchaudio --index-url https://download.pytorch.org/whl/nightly/cpu
 ) else (
     pip install torch torchaudio
@@ -95,6 +111,9 @@ if !PYMNR! geq 14 (
 
 echo → 安装主依赖...
 pip install -r backend\requirements.txt
+
+:: 清除镜像设置
+set PIP_INDEX=
 
 :: ── Frontend build ──
 echo.

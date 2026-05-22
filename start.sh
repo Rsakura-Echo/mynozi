@@ -27,7 +27,7 @@ pip install -q backend/_editdistance_py 2>/dev/null || true
 # PyTorch（FunASR 模型推理需要）
 PY_MINOR=$(python -c "import sys; print(sys.version_info.minor)")
 if [ "$PY_MINOR" -ge 14 ]; then
-    echo "  Python 3.14+ 使用 PyTorch nightly..."
+    echo "  Python 3.14+ 需要 PyTorch nightly..."
     pip install torch torchaudio --index-url https://download.pytorch.org/whl/nightly/cpu
 else
     pip install torch torchaudio

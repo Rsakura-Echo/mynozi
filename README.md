@@ -6,7 +6,10 @@
 
 | 依赖 | Windows | macOS |
 |------|---------|-------|
-| Python 3.10+ | [python.org](https://python.org) | `brew install python` |
+| Python 3.10-3.12（推荐） | [python.org](https://python.org) | `brew install python` |
+> Python 3.13/3.14+ 也支持，但首次安装 PyTorch 较慢（需 nightly 版 ~2.7GB），推荐用 3.12 加速。
+
+
 | Node.js 20+ | [nodejs.org](https://nodejs.org) | `brew install node` |
 | ffmpeg | `winget install ffmpeg` 或 [ffmpeg.org](https://ffmpeg.org) | `brew install ffmpeg` |
 
