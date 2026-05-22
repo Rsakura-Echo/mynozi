@@ -43,27 +43,7 @@ echo 检测到: !PYCMD!
 :: ── Check Python version ──
 for /f "tokens=2" %%v in ('!PYCMD! --version 2^>^&1') do set PYVER=%%v
 echo Python 版本: !PYVER!
-
-:: Extract minor version (e.g. 3.12.9 → 12)
-for /f "tokens=2 delims=." %%m in ("!PYVER!") do set PYMNR=%%m
-if !PYMNR! leq 12 (
-    echo 版本兼容 ✓
-) else (
-    echo.
-    echo **********************************************************************
-    echo [警告] Python !PYVER! 可能不兼容！
-    echo FunASR 依赖的 editdistance 包暂无 Python 3.13+ 的 Windows 预编译版本。
-    echo 建议安装 Python 3.10 - 3.12 后重新运行本脚本。
-    echo 下载: https://www.python.org/downloads/release/python-3129/
-    echo.
-    echo 如果你已有 Python 3.12，可以运行：
-    echo   py -3.12 -m venv .venv
-    echo   然后重新执行 start.bat
-    echo **********************************************************************
-    echo.
-    set /p CONTINUE="仍然继续？(y/n): "
-    if /i not "!CONTINUE!"=="y" exit /b 1
-)
+echo 版本兼容 ✓ （editdistance 使用纯 Python 替代，无需 C 编译）
 
 :: ── Check ffmpeg ──
 echo.
