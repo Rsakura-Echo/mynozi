@@ -68,8 +68,9 @@ if %errorlevel% neq 0 (
 )
 
 echo.
-echo [4/5] 安装 Python 依赖...
-pip install -q -r backend\requirements.txt
+echo [4/5] 安装 Python 依赖（首次约 2-5 分钟，请耐心等待）...
+echo.
+pip install -r backend\requirements.txt
 
 :: ── Frontend build ──
 echo.
