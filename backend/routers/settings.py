@@ -1,6 +1,7 @@
 """ASR 模型设置 API。"""
 
 import json
+import os
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException
@@ -94,13 +95,31 @@ FUNASR_MODELS = {
         "size_gb": 1.0,
         "model_id": "iic/speech_paraformer-large-vad-punc-spk_asr_nat-zh-cn",
     },
+    "fsmn-vad": {
+        "dir": "speech_fsmn_vad_zh-cn-16k-common-pytorch",
+        "label": "FSMN-VAD (语音端点检测)",
+        "size_gb": 0.01,
+        "model_id": "iic/speech_fsmn_vad_zh-cn-16k-common-pytorch",
+    },
+    "cam++": {
+        "dir": "speech_campplus_sv_zh-cn_16k-common",
+        "label": "CAM++ (说话人识别)",
+        "size_gb": 0.01,
+        "model_id": "iic/speech_campplus_sv_zh-cn_16k-common",
+    },
 }
 
 
 def _check_ms_model_cached(dir_name: str) -> dict:
-    """检测 ModelScope 模型是否已缓存（以 model.pt 存在为完成标志）。"""
+    """检测 ModelScope 模型是否已缓存（以 model 文件存在为完成标志）。"""
     model_dir = MS_CACHE / dir_name
-    downloaded = (model_dir / "model.pt").exists() or (model_dir / "pytorch_model.bin").exists()
+    # 检查是否有实际模型文件（.pt / .pth / .onnx）或配置文件
+    downloaded = False
+    if model_dir.exists():
+        for pattern in ["model.pt", "pytorch_model.bin", "*.onnx", "config.json", "configuration.json"]:
+            if list(model_dir.glob(pattern)):
+                downloaded = True
+                break
     size = 0
     if model_dir.exists():
         try:
@@ -112,6 +131,51 @@ def _check_ms_model_cached(dir_name: str) -> dict:
         "size_downloaded_gb": round(size / (1024 ** 3), 1),
         "path": str(model_dir),
     }
+
+
+def check_models_cached(asr_model: str) -> tuple[bool, str]:
+    """检查指定 ASR 引擎所需模型是否全部缓存。
+
+    Returns:
+        (is_cached, error_message) — is_cached=True 表示可以正常使用，
+        error_message 在未缓存时包含提示信息。
+    """
+    if asr_model == "funasr":
+        missing = []
+        for name, info in FUNASR_MODELS.items():
+            status = _check_ms_model_cached(info["dir"])
+            if not status["downloaded"]:
+                missing.append(f"  • {info['label']} ({info['model_id']})")
+        if missing:
+            msg = (
+                "ASR 模型尚未下载，请先在右上角设置中点击「下载模型」按钮完成下载后再上传音频。\n"
+                "缺少以下模型：\n" + "\n".join(missing)
+            )
+            return False, msg
+        return True, ""
+
+    if asr_model == "whisperx":
+        # 读取用户配置的模型大小
+        data = _load()
+        size = data.get("whisper_model_size", "medium")
+        info = ASR_MODELS.get(size)
+        if not info:
+            return False, f"未知 Whisper 模型大小: {size}"
+        status = _check_hf_model_cached(info["repo"])
+        if not status["downloaded"]:
+            msg = (
+                f"WhisperX {size} 模型尚未下载，请先在右上角设置中切换至 WhisperX 引擎并点击「下载模型」按钮。\n"
+                f"模型大小约 {info['size_gb']} GB，首次下载需要几分钟。"
+            )
+            return False, msg
+        # 额外检查：whisperx 本身是否安装
+        try:
+            import whisperx  # noqa: F401
+        except ImportError:
+            return False, "WhisperX 库未安装。请运行: pip install whisperx torch torchaudio"
+        return True, ""
+
+    return False, f"未知 ASR 引擎: {asr_model}"
 
 
 @router.get("/models")
@@ -237,9 +301,10 @@ async def download_model(body: DownloadModelRequest):
         )
         threading.Thread(target=_download_whisperx_model, args=(size,), daemon=True).start()
     elif body.engine == "funasr":
+        total = len(FUNASR_MODELS)
         _download_state.update(
-            status="downloading", message="正在下载 FunASR 模型（约 2GB，从 ModelScope 国内源）...",
-            current="", total=2, done=0
+            status="downloading", message="正在下载 FunASR 模型（约 1GB，从 ModelScope 国内源）...",
+            current="", total=total, done=0
         )
         threading.Thread(target=_download_funasr_models, daemon=True).start()
     else:
@@ -271,27 +336,39 @@ def _download_whisperx_model(size: str):
 
 
 def _download_funasr_models():
-    """后台下载 FunASR paraformer 模型（使用 funasr.AutoModel 从 ModelScope 国内源拉取）。"""
-    model_id = "iic/speech_paraformer-large-vad-punc-spk_asr_nat-zh-cn"
+    """后台下载所有 FunASR 模型（paraformer + VAD + CAM++）。"""
+    model_ids = [
+        "iic/speech_paraformer-large-vad-punc-spk_asr_nat-zh-cn",
+        "iic/speech_fsmn_vad_zh-cn-16k-common-pytorch",
+        "iic/speech_campplus_sv_zh-cn_16k-common",
+    ]
+    total = len(model_ids)
+    done = 0
+
+    # 临时取消离线模式以允许下载
+    old_offline = os.environ.pop("MODELSCOPE_OFFLINE", None)
     try:
-        _download_state["current"] = model_id
-        _download_state["message"] = "正在下载 FunASR 模型（约 1GB，从 ModelScope 国内源）..."
-        print(f"[settings] Downloading {model_id} via FunASR AutoModel...")
+        from funasr import AutoModel
+        import torch
+        _device = "cuda" if torch.cuda.is_available() else "cpu"
 
-        # 临时取消离线模式以允许下载
-        old_offline = os.environ.pop("MODELSCOPE_OFFLINE", None)
-        try:
-            from funasr import AutoModel
-            AutoModel(model=model_id, disable_update=True, device="cpu")
-        finally:
-            if old_offline is not None:
-                os.environ["MODELSCOPE_OFFLINE"] = old_offline
+        for i, model_id in enumerate(model_ids):
+            _download_state.update(
+                current=model_id,
+                message=f"正在下载 FunASR 模型 ({i+1}/{total})...",
+                done=i,
+            )
+            print(f"[settings] Downloading {model_id} via FunASR AutoModel (device={_device})...")
+            AutoModel(model=model_id, disable_update=True, device=_device)
+            print(f"[settings] Downloaded {model_id}")
 
-        print(f"[settings] Downloaded {model_id}")
         _download_state.update(
-            status="done", message="FunASR 模型下载完成", done=1
+            status="done", message="FunASR 全部模型下载完成", done=total
         )
     except Exception as e:
         _download_state.update(
             status="error", message=f"下载失败: {e}"
         )
+    finally:
+        if old_offline is not None:
+            os.environ["MODELSCOPE_OFFLINE"] = old_offline

@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from database import get_session
 from models import Project, Speaker, Sentence
 from config import settings
+from routers.settings import check_models_cached
 from services.asr_service import process_audio_with_asr
 from services.funasr_service import process_audio_with_funasr
 
@@ -173,14 +174,22 @@ async def upload_file(
         )
         return {"message": "检测到相同音频，已加载缓存结果", "project_id": project_id, "cached": True}
 
-    # 缓存未命中 — 正常 ASR 处理
+    # 缓存未命中 — 检查模型是否已下载
+    asr_model = _get_asr_model()
+    model_ready, model_error = check_models_cached(asr_model)
+    if not model_ready:
+        raise HTTPException(
+            status_code=409,
+            detail={"message": model_error, "code": "model_not_cached", "engine": asr_model},
+        )
+
+    # 正常 ASR 处理
     project.original_file = str(src_path)
     project.file_hash = file_hash
     project.status = "processing"
     project.last_error = None
     await session.commit()
 
-    asr_model = _get_asr_model()
     if asr_model == "funasr":
         background_tasks.add_task(process_audio_with_funasr, project_id, str(src_path), file_hash)
     else:

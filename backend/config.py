@@ -31,10 +31,8 @@ class Settings(BaseSettings):
     runninghub_timeout: int = 600  # 单次生成超时(秒)
     runninghub_poll_interval: float = 5.0  # 轮询间隔(秒)
 
-    # ASR (WhisperX)
-    whisper_model: str = "large-v3"
-    whisper_device: str = "auto"  # auto / cpu / cuda / mps（mps 仅 macOS）
-    whisper_compute_type: str = "auto"  # auto / float16 / float32 / int8
+    # ASR
+    asr_device: str = "auto"  # auto / cpu / cuda / mps（auto 时自动选择最优）
     hf_token: str = ""  # HuggingFace token（pyannote diarization 需要）
 
     # 上传限制

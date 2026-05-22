@@ -62,8 +62,13 @@ export default function ProjectEditor() {
       await uploadFile(id, file);
       toast.show('上传成功，开始 AI 分析...');
       load();
-    } catch {
-      toast.show('上传失败');
+    } catch (err: any) {
+      const detail = err?.response?.data?.detail;
+      if (detail?.code === 'model_not_cached') {
+        toast.show(detail.message || '模型未下载，请先在设置中下载模型');
+      } else {
+        toast.show('上传失败');
+      }
     }
   };
 

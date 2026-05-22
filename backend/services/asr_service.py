@@ -76,7 +76,7 @@ def _process_sync(project_id: str, file_path: str, file_hash: str = ""):
                     except Exception:
                         pass
 
-                device = settings.whisper_device
+                device = settings.asr_device
                 if device == "auto":
                     if torch.cuda.is_available():
                         device = "cuda"
@@ -89,7 +89,7 @@ def _process_sync(project_id: str, file_path: str, file_hash: str = ""):
                     device = "cpu"
                     compute_type = "int8"
                 else:
-                    compute_type = settings.whisper_compute_type
+                    compute_type = "auto"
                     if compute_type == "auto":
                         compute_type = "float16" if device == "cuda" else "int8"
 

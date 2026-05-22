@@ -66,7 +66,14 @@ def _process_sync(project_id: str, file_path: str, file_hash: str = ""):
                 if audio_data.ndim > 1:
                     audio_data = audio_data.mean(axis=1)
 
-                # Step 2: 加载模型
+                # Step 2: 自动检测设备
+                import torch
+                device = settings.asr_device
+                if device == "auto":
+                    device = "cuda" if torch.cuda.is_available() else "cpu"
+                print(f"[funasr] Using device: {device}")
+
+                # Step 3: 加载模型
                 from funasr import AutoModel
 
                 print(f"[funasr] Loading models...")
@@ -75,21 +82,21 @@ def _process_sync(project_id: str, file_path: str, file_hash: str = ""):
                 asr_model = AutoModel(
                     model="iic/speech_paraformer-large-vad-punc-spk_asr_nat-zh-cn",
                     disable_update=True,
-                    device="cpu",
+                    device=device,
                 )
 
                 # VAD
                 vad_model = AutoModel(
                     model="fsmn-vad",
                     disable_update=True,
-                    device="cpu",
+                    device=device,
                 )
 
                 # 说话人识别
                 spk_model = AutoModel(
                     model="cam++",
                     disable_update=True,
-                    device="cpu",
+                    device=device,
                 )
 
                 # Step 3: ASR 识别

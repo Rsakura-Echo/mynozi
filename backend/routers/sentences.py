@@ -616,11 +616,14 @@ def _split_asr_sync(clip1: str, clip2: str) -> tuple:
     try:
         from funasr import AutoModel
 
-        print(f"[split-asr] loading FunASR paraformer model...")
+        import torch
+        _device = "cuda" if torch.cuda.is_available() else "cpu"
+
+        print(f"[split-asr] loading FunASR paraformer model (device={_device})...")
         model = AutoModel(
             model="iic/speech_paraformer-large_asr_nat-zh-cn",
             disable_update=True,
-            device="cpu",
+            device=_device,
         )
         print(f"[split-asr] model loaded, recognizing...")
 
@@ -685,11 +688,14 @@ def _recognize_region_sync(clip: str) -> str:
     try:
         from funasr import AutoModel
 
-        print(f"[region-asr] loading FunASR model (same as main pipeline)...")
+        import torch
+        _device = "cuda" if torch.cuda.is_available() else "cpu"
+
+        print(f"[region-asr] loading FunASR model (device={_device})...")
         model = AutoModel(
             model="iic/speech_paraformer-large-vad-punc-spk_asr_nat-zh-cn",
             disable_update=True,
-            device="cpu",
+            device=_device,
         )
         print(f"[region-asr] model loaded, recognizing...")
         result = model.generate(input=clip)

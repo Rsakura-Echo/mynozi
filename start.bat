@@ -9,53 +9,71 @@ echo   mynozi — 智能配音工坊
 echo   http://localhost:8000
 echo ================================================
 
-:: ── Detect Python command ──
+:: ── Find best Python version ──
 echo.
 echo [1/5] 检查 Python 环境...
 set PYCMD=
+set PYVER=
+set PYMNR=99
 
-:: Try py first (Windows Store / modern install)
-py --version >nul 2>&1
-if %errorlevel% equ 0 (
-    set PYCMD=py
-) else (
-    python --version >nul 2>&1
-    if %errorlevel% equ 0 (
-        set PYCMD=python
+:: Try Python 3.12 > 3.11 > 3.10 > 3.9 (prefer 3.10-3.12 for best compatibility)
+for %%v in (3.12 3.11 3.10 3.9) do (
+    if "!PYCMD!"=="" (
+        py -%%v --version >nul 2>&1
+        if !errorlevel! equ 0 (
+            set PYCMD=py -%%v
+            for /f "tokens=2" %%x in ('py -%%v --version 2^>^&1') do set PYVER=%%x
+            for /f "tokens=2 delims=." %%x in ("!PYVER!") do set PYMNR=%%x
+            if !PYMNR! leq 12 goto :py_found
+            set PYCMD=
+        )
+    )
+)
+
+:: Fallback: use whatever py/python is available
+if "!PYCMD!"=="" (
+    py --version >nul 2>&1
+    if !errorlevel! equ 0 (
+        set PYCMD=py
     ) else (
-        python3 --version >nul 2>&1
-        if %errorlevel% equ 0 (
-            set PYCMD=python3
+        python --version >nul 2>&1
+        if !errorlevel! equ 0 ( set PYCMD=python ) else (
+            python3 --version >nul 2>&1
+            if !errorlevel! equ 0 ( set PYCMD=python3 )
         )
     )
 )
 
 if "!PYCMD!"=="" (
-    echo [错误] 未找到 Python，请先安装 Python 3.10 - 3.12
-    echo 下载地址: https://www.python.org/downloads/
+    echo [错误] 未找到 Python，正在尝试自动安装 Python 3.12...
+    winget install Python.Python.3.12 --silent --accept-package-agreements >nul 2>&1
+    if !errorlevel! equ 0 (
+        echo Python 3.12 安装成功！请重新运行 start.bat
+    ) else (
+        echo 自动安装失败，请手动安装 Python 3.10-3.12
+        echo 下载: https://www.python.org/downloads/
+    )
     pause
     exit /b 1
 )
 
-echo 检测到: !PYCMD!
-!PYCMD! --version
-
-:: ── Check Python version ──
+:py_found
 for /f "tokens=2" %%v in ('!PYCMD! --version 2^>^&1') do set PYVER=%%v
+for /f "tokens=2 delims=." %%m in ("!PYVER!") do set PYMNR=%%m
+
+echo 使用: !PYCMD!
 echo Python 版本: !PYVER!
 
-for /f "tokens=2 delims=." %%m in ("!PYVER!") do set PYMNR=%%m
 if !PYMNR! geq 14 (
     echo.
-    echo [提示] Python 3.14+ 需从 PyTorch nightly 下载（~2.7GB，较慢）
-    echo 推荐安装 Python 3.12 以加速首次安装：
-    echo   1. 在命令行输入: py -3.12
-    echo   2. 会自动跳转 Microsoft Store 安装，几十秒完成
-    echo   3. 然后删除 .venv 重新运行本脚本即可
+    echo [注意] Python 3.14+ 首次安装 PyTorch 较慢（~2.7GB nightly 版）
+    echo 推荐: py -3.12  →  系统自动安装  →  删 .venv  →  重新运行
     echo.
-    echo 继续将使用 Python !PYVER! + PyTorch nightly...
 )
-echo 版本兼容 ✓
+if !PYMNR! geq 13 if !PYMNR! leq 13 (
+    echo Python 3.13 正常兼容（editdistance 使用纯 Python 替代）
+)
+if !PYMNR! leq 12 echo 最佳兼容版本 ✓
 
 :: ── Check ffmpeg ──
 echo.
