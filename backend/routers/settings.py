@@ -381,6 +381,11 @@ def _install_whisperx(python_exe: str):
         print("[settings] faster-whisper already installed")
     except ImportError:
         _try_pip(["faster-whisper"])
+    try:
+        import pyannote.audio  # noqa: F401
+        print("[settings] pyannote.audio already installed")
+    except ImportError:
+        _try_pip(["pyannote.audio"])
     # 最后装 whisperx 本体（--no-deps 跳过已解决好的依赖）
     _try_pip(["whisperx", "--no-deps"])
 
