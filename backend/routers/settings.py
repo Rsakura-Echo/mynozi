@@ -370,22 +370,18 @@ def _install_whisperx(python_exe: str):
 
     # Step 2: 手动安装 whisperx 依赖（绕过 ctranslate2==4.4.0 已下架问题）
     # whisperx 锁定了 ctranslate2==4.4.0 但 PyPI 上只有 4.6+，必须分步安装
-    try:
-        import ctranslate2  # noqa: F401
-        print("[settings] ctranslate2 already installed")
-    except ImportError:
-        print("[settings] Installing ctranslate2 (latest, no version pin)...")
-        _try_pip(["ctranslate2"])
-    try:
-        import faster_whisper  # noqa: F401
-        print("[settings] faster-whisper already installed")
-    except ImportError:
-        _try_pip(["faster-whisper"])
-    try:
-        import pyannote.audio  # noqa: F401
-        print("[settings] pyannote.audio already installed")
-    except ImportError:
-        _try_pip(["pyannote.audio"])
+    # pyannote.audio 依赖 transformers，但 pip 有时漏装，显式安装避免缺依赖
+    for mod, pkg in [
+        ("transformers", ["transformers"]),
+        ("ctranslate2", ["ctranslate2"]),
+        ("faster_whisper", ["faster-whisper"]),
+        ("pyannote.audio", ["pyannote.audio"]),
+    ]:
+        try:
+            __import__(mod)
+            print(f"[settings] {mod} already installed")
+        except ImportError:
+            _try_pip(pkg)
     # 最后装 whisperx 本体（--no-deps 跳过已解决好的依赖）
     _try_pip(["whisperx", "--no-deps"])
 
