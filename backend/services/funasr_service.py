@@ -165,6 +165,11 @@ def _process_sync(project_id: str, file_path: str, file_hash: str = ""):
                 _update_progress(project_id, "后处理...", 80)
                 sub_segments = _merge_adjacent_same_speaker(refined)
 
+                # 统一转换毫秒 -> 秒（后续 DB 写入使用 start/end）
+                for seg in sub_segments:
+                    seg["start"] = seg.pop("start_ms") / 1000.0
+                    seg["end"] = seg.pop("end_ms") / 1000.0
+
                 if not sub_segments:
                     project.status = "error"
                     project.last_error = "未能提取有效句子"
