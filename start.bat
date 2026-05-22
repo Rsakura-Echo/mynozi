@@ -95,6 +95,15 @@ if %errorlevel% neq 0 (
 echo.
 echo [4/5] 安装 Python 依赖（首次约 2-5 分钟，请耐心等待）...
 echo.
+
+:: 预先安装纯 Python editdistance 替代（修复 Windows Python 3.13 编译问题）
+echo → 预处理 editdistance 兼容层...
+pip install -q backend\_editdistance_py
+if %errorlevel% neq 0 (
+    echo [警告] editdistance 兼容层安装失败，继续安装主依赖...
+)
+
+echo → 安装主依赖...
 pip install -r backend\requirements.txt
 
 :: ── Frontend build ──

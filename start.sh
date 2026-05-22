@@ -22,7 +22,9 @@ fi
 source .venv/bin/activate
 
 echo "[2/3] 安装 Python 依赖..."
-pip install -q -r backend/requirements.txt
+# 预安装纯 Python editdistance（修复 Python 3.13 编译问题）
+pip install -q backend/_editdistance_py 2>/dev/null || true
+pip install -r backend/requirements.txt
 echo "  依赖已就绪"
 
 # ── Frontend build ──
