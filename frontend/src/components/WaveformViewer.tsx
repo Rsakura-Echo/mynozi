@@ -327,13 +327,14 @@ export default function WaveformViewer({
   }, [sentences, totalDur, peaks]);
 
   return (
-    <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: 24 }}>
+    <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: 24, minWidth: 0, overflow: 'hidden' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 16 }}>
         <span style={{ fontSize: 12, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>音频波形 + 字幕</span>
         <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--text-muted)' }}>
           {sentences.length > 0 ? `总时长 ${formatTime(totalDur)} · ${sentences.length} 句` : ''}
         </span>
       </div>
+      <div style={{ overflow: 'auto', width: '100%', borderRadius: 'var(--radius-sm)' }}>
       <div
         ref={containerRef}
         onMouseDown={handleMouseDown}
@@ -541,6 +542,7 @@ export default function WaveformViewer({
           </div>
         )}
 
+      </div>
       </div>
     </div>
   );

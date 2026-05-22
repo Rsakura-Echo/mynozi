@@ -13,10 +13,11 @@ SENTENCE_PAUSE_PUNCT = set("，,；;：:")
 ALL_PUNCT = SENTENCE_END_PUNCT | SENTENCE_PAUSE_PUNCT
 
 # 句子时长限制（秒）
-MAX_SENTENCE_DURATION = 15.0   # 超过此值尝试在逗号/停顿处二次切分
+MAX_SENTENCE_DURATION = 8.0    # 超过此值尝试在逗号/停顿处二次切分
+HARD_SPLIT_DURATION = 10.0     # 大于此值强制均分（即使无标点）
 MIN_SENTENCE_DURATION = 0.3    # 短于此值合并到相邻句
 MIN_SENTENCE_CHARS = 2         # 少于此字符数视为无效
-WORD_PAUSE_THRESHOLD = 0.5     # 词间隔超过此秒数可切分（即使无标点）
+WORD_PAUSE_THRESHOLD = 0.3     # 词间隔超过此秒数可切分（即使无标点）
 
 
 def _speaker_label_to_name(label: str) -> str:
@@ -322,41 +323,49 @@ def _rebuild_text(words: list[str]) -> str:
 def _refine_sentences(raw: list[dict]) -> list[dict]:
     """后处理优化：
     1. 超过 MAX_SENTENCE_DURATION 的句子在逗号/停顿处再切分
-    2. 过短句子合并到相邻句
+    2. 超过 HARD_SPLIT_DURATION 的句子强制按时间均分
+    3. 过短句子合并到相邻句
     """
     if not raw:
         return raw
 
-    # Step 1: 长句二次切分
+    # Step 1: 长句二次切分（先尝试标点，再尝试强制均分）
     split_result = []
     for seg in raw:
         duration = (seg["end_ms"] - seg["start_ms"]) / 1000.0
-        if duration > MAX_SENTENCE_DURATION:
-            # 尝试在逗号处切分
-            sub_sentences = _split_long_sentence(seg)
-            split_result.extend(sub_sentences)
+        if duration > HARD_SPLIT_DURATION:
+            # 先尝试标点切分
+            sub = _split_long_sentence(seg)
+            # 检查标点切分结果是否仍然太长
+            final_sub = []
+            for s in sub:
+                sd = (s["end_ms"] - s["start_ms"]) / 1000.0
+                if sd > HARD_SPLIT_DURATION:
+                    final_sub.extend(_split_by_duration(s))
+                else:
+                    final_sub.append(s)
+            split_result.extend(final_sub)
+        elif duration > MAX_SENTENCE_DURATION:
+            split_result.extend(_split_long_sentence(seg))
         else:
             split_result.append(seg)
 
     if not split_result:
         return raw
 
-    # Step 2: 合并过短句子到相邻句（优先合并到更短的那边）
+    # Step 2: 合并过短句子到相邻句
     merged = []
     for seg in split_result:
         duration = (seg["end_ms"] - seg["start_ms"]) / 1000.0
         text_len = len(seg["text"])
 
         if duration < MIN_SENTENCE_DURATION or text_len < MIN_SENTENCE_CHARS:
-            # 合并到前一句
             if merged:
                 prev = merged[-1]
                 prev["text"] += seg["text"]
                 prev["end_ms"] = seg["end_ms"]
-            # 否则下一轮循环会把它合并到后一句
             continue
 
-        # 如果前一句太短，当前句吞并前句
         if merged:
             prev_duration = (merged[-1]["end_ms"] - merged[-1]["start_ms"]) / 1000.0
             if prev_duration < MIN_SENTENCE_DURATION and len(merged[-1]["text"]) < MIN_SENTENCE_CHARS * 3:
