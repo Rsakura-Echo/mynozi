@@ -319,6 +319,12 @@ async def download_model(body: DownloadModelRequest):
 
 def _download_whisperx_model(size: str):
     """后台下载 WhisperX / faster-whisper 模型。"""
+    # 临时允许 HuggingFace 在线下载（start.bat 默认设了 HF_HUB_OFFLINE=1）
+    old_offline = os.environ.pop("HF_HUB_OFFLINE", None)
+    # 确保使用国内镜像
+    old_endpoint = os.environ.get("HF_ENDPOINT", "")
+    if not old_endpoint:
+        os.environ["HF_ENDPOINT"] = "https://hf-mirror.com"
     try:
         _download_state["current"] = f"faster-whisper-{size}"
         import whisperx
@@ -328,8 +334,10 @@ def _download_whisperx_model(size: str):
         if torch.cuda.is_available():
             device = "cuda"
             compute_type = "float16"
-        _download_state["message"] = f"正在加载 WhisperX {size} 模型（首次自动下载）..."
+        _download_state["message"] = f"正在下载 WhisperX {size} 模型（首次，约需 3-5 分钟）..."
+        print(f"[settings] Downloading faster-whisper-{size} (device={device}, mirror={os.environ.get('HF_ENDPOINT')})...")
         whisperx.load_model(size, device=device, compute_type=compute_type)
+        print(f"[settings] WhisperX {size} model ready")
         _download_state.update(
             status="done", message=f"WhisperX {size} 模型下载完成", done=1
         )
@@ -337,6 +345,11 @@ def _download_whisperx_model(size: str):
         _download_state.update(
             status="error", message=f"下载失败: {e}"
         )
+    finally:
+        if old_offline is not None:
+            os.environ["HF_HUB_OFFLINE"] = old_offline
+        if not old_endpoint:
+            os.environ.pop("HF_ENDPOINT", None)
 
 
 def _download_funasr_models():
