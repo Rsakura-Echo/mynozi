@@ -51,12 +51,39 @@ export default function WaveformViewer({
   const [regionLoading, setRegionLoading] = useState(false);
 
   const DRAG_MIN_PX = 5;
-  // 像素/秒：控制波形水平拉伸比例
-  const PX_PER_SECOND = 80;
   const MIN_CANVAS_WIDTH = 800;
 
+  // 像素/秒：支持 Ctrl+滚轮缩放
+  const [pxPerSec, setPxPerSec] = useState(80);
+
   const totalDur = sentences.length > 0 ? sentences[sentences.length - 1].end_time : 0;
-  const canvasW = Math.max(MIN_CANVAS_WIDTH, totalDur * PX_PER_SECOND);
+  const canvasW = Math.max(MIN_CANVAS_WIDTH, totalDur * pxPerSec);
+
+  // Ctrl + 滚轮缩放
+  const handleWheel = useCallback((e: React.WheelEvent) => {
+    if (!e.ctrlKey && !e.metaKey) return;
+    e.preventDefault();
+    const container = containerRef.current;
+    if (!container) return;
+
+    // 记录缩放前鼠标在时间轴上的位置
+    const rect = container.getBoundingClientRect();
+    const mouseX = e.clientX - rect.left + container.scrollLeft;
+    const timeAtMouse = (mouseX / canvasW) * totalDur;
+
+    const factor = e.deltaY < 0 ? 1.25 : 0.8;
+    const nextPxPerSec = Math.max(20, Math.min(500, pxPerSec * factor));
+    setPxPerSec(nextPxPerSec);
+
+    // 缩放后恢复鼠标位置（下一帧执行，直接用计算出的新值避免闭包过期）
+    const newCanvasW = Math.max(MIN_CANVAS_WIDTH, totalDur * nextPxPerSec);
+    requestAnimationFrame(() => {
+      if (container) {
+        const newMouseX = (timeAtMouse / totalDur) * newCanvasW;
+        container.scrollLeft = newMouseX - (e.clientX - rect.left);
+      }
+    });
+  }, [canvasW, totalDur, pxPerSec]);
 
   // 全局 mouseup：处理拖拽到容器外松开的情况
   useEffect(() => {
@@ -250,32 +277,37 @@ export default function WaveformViewer({
       }
     });
 
-    // ── 2. Waveform bars ──
+    // ── 2. Waveform — 平滑连续曲线（线性插值 + 1.5px 细柱）──
     const useReal = peaks.length > 0;
-    const BAR_PX = 2.5;  // 每根柱子固定像素宽度
-    const barCount = Math.floor(w / BAR_PX);
-    const barW = BAR_PX;
+    const BAR_W = 1.5;
+    const barCount = Math.floor(w / BAR_W);
+    const totalPeaks = peaks.length;
 
     for (let i = 0; i < barCount; i++) {
       const t = (i / barCount) * totalDur;
       const s = sentences.find(x => t >= x.start_time && t <= x.end_time);
+
       let amp: number;
       if (useReal) {
-        // 从 peaks 数据中采样对应位置
-        const peakIdx = Math.floor((i / barCount) * peaks.length);
-        amp = peaks[peakIdx] || 0;
+        // 线性插值让波形平滑连续
+        const floatIdx = (i / barCount) * totalPeaks;
+        const idx0 = Math.floor(floatIdx);
+        const idx1 = Math.min(idx0 + 1, totalPeaks - 1);
+        const frac = floatIdx - idx0;
+        amp = peaks[idx0] * (1 - frac) + peaks[idx1] * frac;
       } else {
         amp = pseudoAmp(i);
       }
-      const barH = Math.max(1, amp * waveH * 0.7);
-      const x = i * barW;
+
+      const barH = Math.max(0.5, amp * waveH * 0.7);
+      const x = i * BAR_W;
 
       if (s && s.speaker_id) {
         ctx.fillStyle = SPEAKER_COLORS[speakerMap[s.speaker_id] % SPEAKER_COLORS.length];
       } else {
-        ctx.fillStyle = 'rgba(100,100,120,0.3)';
+        ctx.fillStyle = 'rgba(100,100,120,0.35)';
       }
-      ctx.fillRect(x, mid - barH / 2, barW - 0.5, barH);
+      ctx.fillRect(x, mid - barH / 2, BAR_W, barH);
     }
 
     // ── 3. Sentence dividers ──
@@ -332,7 +364,7 @@ export default function WaveformViewer({
       }
     });
 
-  }, [sentences, totalDur, peaks]);
+  }, [sentences, totalDur, peaks, canvasW]);
 
   return (
     <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: 24, minWidth: 0, overflow: 'hidden' }}>
@@ -355,6 +387,7 @@ export default function WaveformViewer({
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
         onMouseLeave={handleMouseLeave}
+        onWheel={handleWheel}
         onClick={(e) => {
           if (hasDragged) return;
           const s = getSentenceAtX(e.clientX);
