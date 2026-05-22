@@ -147,19 +147,12 @@ def _process_sync(project_id: str, file_path: str, file_hash: str = ""):
 
                 print(f"[funasr] Raw sentences: {len(raw_sentences)}, refined: {len(refined)}")
 
-                # ── Stage 6: VAD + 说话人分离 ──
+                # ── Stage 6: 说话人分离（对每句话跑 CAM++，而非每 VAD 段）───
                 _update_progress(project_id, "说话人分离...", 60)
-                print(f"[funasr] VAD + speaker diarization...")
-                vad_result = vad_model.generate(input=audio_str)
-                vad_segments = vad_result[0].get("value", []) if vad_result else []
+                print(f"[funasr] Speaker diarization (per-sentence)...")
 
-                # 为每个 VAD 段提取说话人特征
-                speaker_labels_per_vad = _assign_speakers_to_vad(
-                    vad_segments, audio_data, sample_rate, spk_model
-                )
-
-                # 将每个句子分配给最近的 VAD 段（继承其说话人标签）
-                _assign_speaker_to_sentences(refined, vad_segments, speaker_labels_per_vad)
+                # 对每句话提取说话人特征 + 聚类
+                _assign_speakers_per_sentence(refined, audio_data, sample_rate, spk_model)
 
                 # ── Stage 7: 合并相邻同说话人短句 ──
                 _update_progress(project_id, "后处理...", 80)
@@ -438,29 +431,50 @@ def _split_by_duration(seg: dict) -> list[dict]:
 
 # ── 说话人分配 ──
 
-def _assign_speakers_to_vad(
-    vad_segments: list, audio_data, sample_rate: int, spk_model,
-) -> list[str]:
-    """对每个 VAD 段运行 CAM++ 说话人识别并聚类。返回每个段的说话人标签列表。"""
+# 最短音频长度（秒），短于此值的句子跳过 CAM++，继承相邻句的说话人
+MIN_SPK_AUDIO_DURATION = 0.8
+
+
+def _assign_speakers_per_sentence(
+    sentences: list[dict], audio_data, sample_rate: int, spk_model,
+):
+    """对每句话单独跑 CAM++ 提取声纹特征，然后聚类分配说话人。
+
+    相比在 VAD 段上跑 CAM++，逐句识别能正确区分 VAD 段内交替说话的多个人。
+    太短的句子跳过 CAM++，后续通过继承相邻句获得说话人标签。
+    """
     import numpy as np
 
-    if not vad_segments or len(vad_segments) < 2:
-        # 只有 0 或 1 个 VAD 段 → 所有人都是 SPEAKER_00
-        return ["SPEAKER_00"] * len(vad_segments)
+    if not sentences:
+        return
 
-    print(f"[funasr] Extracting speaker embeddings for {len(vad_segments)} VAD segments...")
+    audio_len = len(audio_data)
+
+    # 收集每句话的时长
+    sent_durations = [
+        (seg["end_ms"] - seg["start_ms"]) / 1000.0
+        for seg in sentences
+    ]
+
+    # 判断是否可能是多人对话（有足够长的句子才做聚类）
+    long_sentences = [i for i, d in enumerate(sent_durations) if d >= MIN_SPK_AUDIO_DURATION]
+
+    if len(long_sentences) < 2:
+        # 单说话人场景
+        for seg in sentences:
+            seg["speaker"] = "SPEAKER_00"
+        return
+
+    print(f"[funasr] Extracting speaker embeddings for {len(long_sentences)} sentences...")
     spk_embeddings = []
     valid_indices = []
 
-    for idx, seg in enumerate(vad_segments):
-        start_ms, end_ms = seg[0], seg[1]
-        start_sample = int(start_ms * sample_rate / 1000)
-        end_sample = int(end_ms * sample_rate / 1000)
+    for idx in long_sentences:
+        seg = sentences[idx]
+        start_sample = int(seg["start_ms"] * sample_rate / 1000)
+        end_sample = int(seg["end_ms"] * sample_rate / 1000)
         start_sample = max(0, start_sample)
-        end_sample = min(len(audio_data), end_sample)
-
-        if end_sample - start_sample < sample_rate * 0.5:
-            continue  # 太短的段 (< 0.5秒)
+        end_sample = min(audio_len, end_sample)
 
         seg_audio = audio_data[start_sample:end_sample]
 
@@ -477,7 +491,7 @@ def _assign_speakers_to_vad(
                 spk_embeddings.append(emb)
                 valid_indices.append(idx)
         except Exception as e:
-            print(f"[funasr] CAM++ error for segment {seg}: {e}")
+            print(f"[funasr] CAM++ error for sentence {idx}: {e}")
 
     # 聚类
     if len(spk_embeddings) >= 2:
@@ -485,13 +499,13 @@ def _assign_speakers_to_vad(
         embeddings_array = np.array(spk_embeddings)
         clustering = AgglomerativeClustering(
             n_clusters=None,
-            distance_threshold=0.35,
+            distance_threshold=0.4,
             metric="cosine",
             linkage="average",
         )
         labels = clustering.fit_predict(embeddings_array)
         num_speakers = len(set(labels))
-        print(f"[funasr] Found {num_speakers} speakers for {len(valid_indices)} VAD segments")
+        print(f"[funasr] Found {num_speakers} speakers for {len(valid_indices)} sentences")
     elif len(spk_embeddings) == 1:
         labels = [0]
         num_speakers = 1
@@ -499,45 +513,23 @@ def _assign_speakers_to_vad(
         labels = []
         num_speakers = 0
 
-    # 构建完整标签列表（未分析的段归为 SPEAKER_00）
+    # 为做了 CAM++ 的句子分配标签
     idx_to_label = {valid_indices[i]: int(labels[i]) for i in range(len(labels))}
-    speaker_labels = []
-    for i in range(len(vad_segments)):
-        lbl = idx_to_label.get(i, 0)
-        speaker_labels.append(f"SPEAKER_{lbl:02d}")
 
-    return speaker_labels
-
-
-def _assign_speaker_to_sentences(
-    sentences: list[dict], vad_segments: list, speaker_labels: list[str],
-):
-    """将每个句子分配给时间上重叠最多的 VAD 段，继承其说话人标签。"""
-    for seg in sentences:
-        seg_start = seg["start_ms"]
-        seg_end = seg["end_ms"]
-        seg_mid = (seg_start + seg_end) / 2
-
-        best_idx = 0
-        best_overlap = 0
-
-        for idx, vs in enumerate(vad_segments):
-            vad_start, vad_end = vs[0], vs[1]
-
-            # 计算重叠时长
-            overlap_start = max(seg_start, vad_start)
-            overlap_end = min(seg_end, vad_end)
-            overlap = max(0, overlap_end - overlap_start)
-
-            # 如果句子中点落在 VAD 段内，额外加权
-            bonus = 1000 if vad_start <= seg_mid <= vad_end else 0
-            score = overlap + bonus
-
-            if score > best_overlap:
-                best_overlap = score
-                best_idx = idx
-
-        seg["speaker"] = speaker_labels[best_idx] if best_idx < len(speaker_labels) else "SPEAKER_00"
+    # 为所有句子分配说话人（短句继承最近的已识别句子）
+    for i, seg in enumerate(sentences):
+        if i in idx_to_label:
+            seg["speaker"] = f"SPEAKER_{idx_to_label[i]:02d}"
+        else:
+            # 找最近的有标签的句子
+            best_dist = float("inf")
+            best_label = 0
+            for vi in valid_indices:
+                dist = abs(i - vi)
+                if dist < best_dist:
+                    best_dist = dist
+                    best_label = idx_to_label[vi]
+            seg["speaker"] = f"SPEAKER_{best_label:02d}"
 
 
 def _merge_adjacent_same_speaker(segments: list[dict]) -> list[dict]:

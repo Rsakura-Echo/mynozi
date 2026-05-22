@@ -352,7 +352,7 @@ export default function WaveformViewer({
         }}
         style={{
           position: 'relative', height: 160, borderRadius: 'var(--radius-sm)',
-          overflowX: 'auto', overflowY: 'hidden', userSelect: 'none',
+          overflow: 'auto hidden', userSelect: 'none',
           cursor: isDragging ? 'col-resize'
             : hoveredSentence ? 'col-resize'
             : 'crosshair',
