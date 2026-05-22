@@ -59,8 +59,8 @@ export default function WaveformViewer({
   const totalDur = sentences.length > 0 ? sentences[sentences.length - 1].end_time : 0;
   const canvasW = Math.max(MIN_CANVAS_WIDTH, totalDur * pxPerSec);
 
-  // Ctrl + 滚轮缩放
-  const handleWheel = useCallback((e: React.WheelEvent) => {
+  // Ctrl + 滚轮缩放（原生监听绕过浏览器 passive 限制）
+  const handleWheel = useCallback((e: WheelEvent) => {
     if (!e.ctrlKey && !e.metaKey) return;
     e.preventDefault();
     const container = containerRef.current;
@@ -84,6 +84,15 @@ export default function WaveformViewer({
       }
     });
   }, [canvasW, totalDur, pxPerSec]);
+
+  // 用原生 addEventListener 挂载 wheel，{ passive: false } 绕过浏览器默认缩放
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const handler = (e: WheelEvent) => handleWheel(e);
+    el.addEventListener('wheel', handler, { passive: false });
+    return () => el.removeEventListener('wheel', handler);
+  }, [handleWheel]);
 
   // 全局 mouseup：处理拖拽到容器外松开的情况
   useEffect(() => {
@@ -387,7 +396,6 @@ export default function WaveformViewer({
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
         onMouseLeave={handleMouseLeave}
-        onWheel={handleWheel}
         onClick={(e) => {
           if (hasDragged) return;
           const s = getSentenceAtX(e.clientX);
