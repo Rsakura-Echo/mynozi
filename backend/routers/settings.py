@@ -294,14 +294,10 @@ async def download_model(body: DownloadModelRequest):
         raise HTTPException(400, detail="已有模型正在下载中，请等待完成")
 
     if body.engine == "whisperx":
-        try:
-            import whisperx  # noqa: F401
-        except ImportError:
-            raise HTTPException(400, detail="WhisperX 库未安装。请先运行: pip install whisperx torch torchaudio")
         size = body.model_size or "medium"
         _download_state.update(
-            status="downloading", message=f"正在下载 WhisperX {size} 模型...",
-            current="", total=1, done=0
+            status="downloading", message="正在准备 WhisperX 环境...",
+            current="", total=2, done=0
         )
         threading.Thread(target=_download_whisperx_model, args=(size,), daemon=True).start()
     elif body.engine == "funasr":
@@ -318,15 +314,58 @@ async def download_model(body: DownloadModelRequest):
 
 
 def _download_whisperx_model(size: str):
-    """后台下载 WhisperX / faster-whisper 模型。"""
-    # 临时允许 HuggingFace 在线下载（start.bat 默认设了 HF_HUB_OFFLINE=1）
+    """后台任务：自动安装 whisperx 库 + 下载 faster-whisper 模型。
+
+    分两步：
+    1. 检测/安装 whisperx 库（pip install）
+    2. 触发模型下载（whisperx.load_model 首次自动拉取）
+    """
+    import subprocess, sys
+
+    # ── Step 1: 安装 whisperx 库 ──
+    try:
+        import whisperx  # noqa: F401
+        print("[settings] whisperx already installed")
+    except ImportError:
+        _download_state.update(
+            current="whisperx 库",
+            message="正在安装 WhisperX 库（首次约 2-5 分钟，含 torch/torchaudio）...",
+            done=0,
+        )
+        print("[settings] Installing whisperx...")
+        try:
+            # 使用清华镜像加速
+            subprocess.check_call(
+                [sys.executable, "-m", "pip", "install", "whisperx", "torch", "torchaudio",
+                 "-i", "https://pypi.tuna.tsinghua.edu.cn/simple", "--quiet"],
+                timeout=600,
+            )
+            print("[settings] whisperx installed successfully")
+        except subprocess.CalledProcessError as e:
+            _download_state.update(
+                status="error",
+                message=f"WhisperX 库安装失败: pip install 出错，请检查网络后重试",
+            )
+            return
+        except subprocess.TimeoutExpired:
+            _download_state.update(
+                status="error",
+                message="WhisperX 库安装超时（>10分钟），请检查网络后重试",
+            )
+            return
+
+    # ── Step 2: 下载模型 ──
+    _download_state.update(
+        current=f"faster-whisper-{size}",
+        message=f"正在下载 WhisperX {size} 模型（首次约 3-5 分钟，共约 3GB）...",
+        total=2, done=1,
+    )
+
     old_offline = os.environ.pop("HF_HUB_OFFLINE", None)
-    # 确保使用国内镜像
     old_endpoint = os.environ.get("HF_ENDPOINT", "")
     if not old_endpoint:
         os.environ["HF_ENDPOINT"] = "https://hf-mirror.com"
     try:
-        _download_state["current"] = f"faster-whisper-{size}"
         import whisperx
         import torch
         device = "cpu"
@@ -334,16 +373,15 @@ def _download_whisperx_model(size: str):
         if torch.cuda.is_available():
             device = "cuda"
             compute_type = "float16"
-        _download_state["message"] = f"正在下载 WhisperX {size} 模型（首次，约需 3-5 分钟）..."
         print(f"[settings] Downloading faster-whisper-{size} (device={device}, mirror={os.environ.get('HF_ENDPOINT')})...")
         whisperx.load_model(size, device=device, compute_type=compute_type)
         print(f"[settings] WhisperX {size} model ready")
         _download_state.update(
-            status="done", message=f"WhisperX {size} 模型下载完成", done=1
+            status="done", message=f"WhisperX {size} 就绪，可以上传音频了", done=2, total=2
         )
     except Exception as e:
         _download_state.update(
-            status="error", message=f"下载失败: {e}"
+            status="error", message=f"模型下载失败: {e}"
         )
     finally:
         if old_offline is not None:
