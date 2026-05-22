@@ -314,9 +314,11 @@ async def download_model(body: DownloadModelRequest):
 
 
 def _install_whisperx(python_exe: str):
-    """安装 whisperx：先确保 torch 已装，再装 whisperx。
+    """安装 whisperx + pyannote.audio。
 
-    分步安装避免依赖解析冲突。依次尝试默认源 → 清华 → 阿里云。
+    策略：先尝试一键 pip install whisperx（带全部依赖）。
+    如果遇到 ctranslate2==4.4.0 已下架问题，则回退到分步安装。
+    所有 pip 调用依次尝试默认源 → 清华 → 阿里云。
     """
     import subprocess
 
@@ -341,7 +343,6 @@ def _install_whisperx(python_exe: str):
                 if r.returncode == 0:
                     print(f"[settings] pip {name} succeeded for {packages}")
                     return
-                # 把 pip 的真实错误打出来
                 err_tail = r.stderr.strip().splitlines()[-5:] if r.stderr else []
                 err_msg = "\n".join(err_tail) if err_tail else r.stdout.strip()[-500:]
                 print(f"[settings] pip {name} FAILED:\n{err_msg}")
@@ -360,7 +361,6 @@ def _install_whisperx(python_exe: str):
         try:
             _try_pip(["torch", "torchaudio"])
         except RuntimeError:
-            # torch 从 PyPI 装不上，尝试 PyTorch 官方源
             print("[settings] Trying PyTorch official source...")
             subprocess.check_call(
                 [python_exe, "-m", "pip", "install", "torch", "torchaudio",
@@ -368,24 +368,39 @@ def _install_whisperx(python_exe: str):
                 timeout=900,
             )
 
-    # Step 2: 手动安装 whisperx 依赖（绕过 ctranslate2==4.4.0 已下架问题）
-    # whisperx 锁定了 ctranslate2==4.4.0 但 PyPI 上只有 4.6+，必须分步安装
-    # pyannote.audio 依赖 transformers，但 pip 有时漏装，显式安装避免缺依赖
-    for mod, pkg in [
-        ("transformers", ["transformers"]),
-        ("ctranslate2", ["ctranslate2"]),
-        ("faster_whisper", ["faster-whisper"]),
-        ("pyannote.audio", ["pyannote.audio"]),
-    ]:
-        try:
-            __import__(mod)
-            print(f"[settings] {mod} already installed")
-        except ImportError:
-            _try_pip(pkg)
+    # Step 2: 先尝试一键安装 whisperx（让 pip 自动解析所有依赖）
+    try:
+        _try_pip(["whisperx"])
+        import whisperx
+        print(f"[settings] whisperx {whisperx.__version__} ready (one-shot)")
+        return
+    except RuntimeError as e:
+        err_str = str(e)
+        if "ctranslate2" in err_str and "4.4.0" in err_str:
+            print("[settings] ctranslate2==4.4.0 不可用，切换分步安装...")
+        else:
+            # 不是 ctranslate2 版本问题，可能网络问题，也尝试分步安装
+            print(f"[settings] 一键安装失败，尝试分步安装: {err_str[:200]}")
+
+    # Step 3: 分步安装（绕过 ctranslate2==4.4.0 版本锁定）
+    # 先安装 pyannote.audio（带 deps，会把 transformers/nltk 等都装好）
+    try:
+        import pyannote.audio  # noqa: F401
+        print("[settings] pyannote.audio already installed")
+    except ImportError:
+        _try_pip(["pyannote.audio"])
+
+    # 再安装 faster-whisper（带 deps，会把 ctranslate2 最新版装好）
+    try:
+        import faster_whisper  # noqa: F401
+        print("[settings] faster-whisper already installed")
+    except ImportError:
+        _try_pip(["faster-whisper"])
+
     # 最后装 whisperx 本体（--no-deps 跳过已解决好的依赖）
     _try_pip(["whisperx", "--no-deps"])
 
-    # Step 3: 验证导入
+    # Step 4: 验证导入
     import whisperx
     print(f"[settings] whisperx {whisperx.__version__} ready")
 
