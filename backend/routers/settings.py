@@ -368,8 +368,25 @@ def _install_whisperx(python_exe: str):
                 timeout=900,
             )
 
-    # Step 2: 安装 whisperx（torch 已就位，无需重复下载）
-    _try_pip(["whisperx"])
+    # Step 2: 手动安装 whisperx 依赖（绕过 ctranslate2==4.4.0 已下架问题）
+    # whisperx 锁定了 ctranslate2==4.4.0 但 PyPI 上只有 4.6+，必须分步安装
+    try:
+        import ctranslate2  # noqa: F401
+        print("[settings] ctranslate2 already installed")
+    except ImportError:
+        print("[settings] Installing ctranslate2 (latest, no version pin)...")
+        _try_pip(["ctranslate2"])
+    try:
+        import faster_whisper  # noqa: F401
+        print("[settings] faster-whisper already installed")
+    except ImportError:
+        _try_pip(["faster-whisper"])
+    # 最后装 whisperx 本体（--no-deps 跳过已解决好的依赖）
+    _try_pip(["whisperx", "--no-deps"])
+
+    # Step 3: 验证导入
+    import whisperx
+    print(f"[settings] whisperx {whisperx.__version__} ready")
 
 
 def _download_whisperx_model(size: str):
