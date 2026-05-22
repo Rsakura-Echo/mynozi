@@ -294,6 +294,10 @@ async def download_model(body: DownloadModelRequest):
         raise HTTPException(400, detail="已有模型正在下载中，请等待完成")
 
     if body.engine == "whisperx":
+        try:
+            import whisperx  # noqa: F401
+        except ImportError:
+            raise HTTPException(400, detail="WhisperX 库未安装。请先运行: pip install whisperx torch torchaudio")
         size = body.model_size or "medium"
         _download_state.update(
             status="downloading", message=f"正在下载 WhisperX {size} 模型...",
