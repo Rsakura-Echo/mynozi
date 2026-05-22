@@ -161,7 +161,7 @@ async def upload_file(
     cached_project = cache_result.scalar_one_or_none()
 
     if cached_project:
-        # 缓存命中 — 直接复用结果
+        # 缓存命中 — 同步复制结果（不能用 background_tasks，否则前端 load() 时数据尚未就绪）
         print(f"[cache] Hit! Reusing results from project {cached_project.id}")
         project.original_file = str(src_path)
         project.original_audio = audio_path
@@ -169,9 +169,7 @@ async def upload_file(
         project.file_hash = file_hash
         await session.commit()
 
-        background_tasks.add_task(
-            _copy_from_cache, cached_project.id, project_id, audio_path, file_hash
-        )
+        await _copy_from_cache(cached_project.id, project_id, audio_path, file_hash)
         return {"message": "检测到相同音频，已加载缓存结果", "project_id": project_id, "cached": True}
 
     # 缓存未命中 — 检查模型是否已下载
