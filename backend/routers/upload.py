@@ -30,10 +30,10 @@ def _get_asr_model() -> str:
     if settings_file.exists():
         try:
             data = json.loads(settings_file.read_text(encoding="utf-8"))
-            return data.get("asr_model", "funasr")
+            return data.get("asr_model", "whisperx")
         except Exception:
             pass
-    return "funasr"
+    return "whisperx"
 
 
 async def _copy_from_cache(
@@ -204,9 +204,10 @@ async def get_processing_status(project_id: str, session: AsyncSession = Depends
     if not project:
         raise HTTPException(status_code=404, detail="项目不存在")
 
-    # 读取实时进度（funasr_service 写入的 _progress_store）
-    from services.funasr_service import _progress_store
-    progress = _progress_store.get(project_id)
+    # 读取实时进度（兼容两种引擎）
+    from services.funasr_service import _progress_store as funasr_store
+    from services.asr_service import _progress_store as asr_store
+    progress = funasr_store.get(project_id) or asr_store.get(project_id)
     if progress and project.status == "processing":
         return {
             "status": project.status,

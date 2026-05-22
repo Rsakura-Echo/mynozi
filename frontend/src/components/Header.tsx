@@ -292,7 +292,7 @@ export default function Header() {
 
                   {/* Download buttons — only show if not all models cached */}
                   {(() => {
-                    const currentEngine = settings?.asr_model || 'funasr';
+                    const currentEngine = settings?.asr_model || 'whisperx';
                     const engineModels = models.filter(m => m.engine === currentEngine);
                     const allCached = engineModels.length > 0 && engineModels.every(m => m.downloaded);
                     const currentSize = settings?.whisper_model_size || 'medium';
