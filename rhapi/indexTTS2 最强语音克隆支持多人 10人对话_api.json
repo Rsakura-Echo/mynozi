@@ -1,0 +1,156 @@
+{
+  "70": {
+    "inputs": {
+      "filename_prefix": [
+        "88",
+        0
+      ],
+      "audioUI": "",
+      "audio": [
+        "152",
+        0
+      ]
+    },
+    "class_type": "SaveAudio",
+    "_meta": {
+      "title": "视频的名称 保存到“output/音效” 文件夹里面"
+    }
+  },
+  "86": {
+    "inputs": {
+      "value": "Name"
+    },
+    "class_type": "PrimitiveString",
+    "_meta": {
+      "title": "图片的名称 保存到“output/audio” 文件夹里面"
+    }
+  },
+  "87": {
+    "inputs": {
+      "value": "蓝先生你有什么要补充吗"
+    },
+    "class_type": "PrimitiveStringMultiline",
+    "_meta": {
+      "title": "输入文本"
+    }
+  },
+  "88": {
+    "inputs": {
+      "string_a": [
+        "89",
+        0
+      ],
+      "string_b": [
+        "93",
+        0
+      ],
+      "delimiter": "_"
+    },
+    "class_type": "StringConcatenate",
+    "_meta": {
+      "title": "String Concatenate 📅🅕🅝"
+    }
+  },
+  "89": {
+    "inputs": {
+      "string_a": [
+        "92",
+        0
+      ],
+      "string_b": [
+        "86",
+        0
+      ],
+      "delimiter": "/"
+    },
+    "class_type": "StringConcatenate",
+    "_meta": {
+      "title": "String Concatenate 📅🅕🅝"
+    }
+  },
+  "92": {
+    "inputs": {
+      "value": "audio"
+    },
+    "class_type": "PrimitiveString",
+    "_meta": {
+      "title": "文件夹名字"
+    }
+  },
+  "93": {
+    "inputs": {
+      "value": "Index-TTS"
+    },
+    "class_type": "PrimitiveString",
+    "_meta": {
+      "title": "图片来源"
+    }
+  },
+  "96": {
+    "inputs": {
+      "model": "IndexTTS-2"
+    },
+    "class_type": "easy downloadIndexTTSAndLoadModel",
+    "_meta": {
+      "title": "IndexTTS Model Loader"
+    }
+  },
+  "100": {
+    "inputs": {
+      "voice_name": "",
+      "use_random": false,
+      "Happy": 0,
+      "Angry": 0,
+      "Sad": 0,
+      "Fear": 0,
+      "Hate": 0,
+      "Low": 0,
+      "Surprise": 0,
+      "Neutral": 0,
+      "reference_audio": [
+        "159",
+        0
+      ]
+    },
+    "class_type": "easy indexTTSEmotionVector",
+    "_meta": {
+      "title": "Voice Emotion Vector"
+    }
+  },
+  "152": {
+    "inputs": {
+      "text": [
+        "87",
+        0
+      ],
+      "unload_model": true,
+      "seed": 678653454,
+      "indextts_model": [
+        "96",
+        0
+      ],
+      "reference_audio": [
+        "159",
+        0
+      ],
+      "emotions": [
+        "100",
+        0
+      ]
+    },
+    "class_type": "easy indexTTSGenerateSimple",
+    "_meta": {
+      "title": "IndexTTS Generate Simple"
+    }
+  },
+  "159": {
+    "inputs": {
+      "audio": "e6d2a401bf9a99d34c024944b6ae6f812ba3c1f19de59328e61542967eb90ca9.wav",
+      "audioUI": ""
+    },
+    "class_type": "LoadAudio",
+    "_meta": {
+      "title": "Load Audio"
+    }
+  }
+}

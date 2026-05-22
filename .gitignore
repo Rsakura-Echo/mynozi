@@ -1,0 +1,40 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+*.egg
+
+# Node
+node_modules/
+frontend/dist/
+
+# Data (user data, SQLite, settings with secrets)
+data/
+
+# Environment
+.env
+.env.*
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Test files
+测试*
+*测试*
+static-demo/
+
+# Audio temp files
+*.wav.tmp
+*.mp3.tmp

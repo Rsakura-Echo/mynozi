@@ -1,0 +1,20 @@
+{
+  "asr_model": "funasr",
+  "asr_model_label": "FunASR (阿里达摩院)",
+  "asr_model_desc": "中文识别 SOTA，口音/方言/噪声环境表现更优。需额外安装 funasr 包，模型 ~2GB。",
+  "available_models": [
+    {
+      "value": "whisperx",
+      "label": "WhisperX (OpenAI)",
+      "desc": "多语言通用模型，中文识别好，支持说话人分离。首次下载 ~3GB，适合大多数场景。"
+    },
+    {
+      "value": "funasr",
+      "label": "FunASR (阿里达摩院)",
+      "desc": "中文识别 SOTA，口音/方言/噪声环境表现更优。需额外安装 funasr 包，模型 ~2GB。"
+    }
+  ],
+  "whisper_model_size": "medium",
+  "runninghub_api_key": "",
+  "runninghub_workflow_id": ""
+}

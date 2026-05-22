@@ -1,0 +1,71 @@
+@import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&family=DM+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap');
+
+:root {
+  --bg-deep: #08080e;
+  --bg-base: #0e0e18;
+  --bg-card: #14141f;
+  --bg-hover: #1a1a28;
+  --bg-input: #111119;
+  --border: #252535;
+  --border-light: #2a2a3a;
+  --text-primary: #e8e8ed;
+  --text-secondary: #8e8e9e;
+  --text-muted: #5c5c6e;
+  --amber: #e8993a;
+  --amber-glow: #f0a850;
+  --amber-dim: #b87020;
+  --blue: #5b9bd5;
+  --green: #4caf92;
+  --red: #e0556a;
+  --violet: #8b7ec8;
+  --radius-sm: 6px;
+  --radius: 10px;
+  --radius-lg: 16px;
+  --font-display: 'Fraunces', Georgia, serif;
+  --font-ui: 'DM Sans', -apple-system, sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: var(--font-ui);
+  background: var(--bg-deep);
+  color: var(--text-primary);
+  min-height: 100vh;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  overflow-x: hidden;
+}
+
+body::before {
+  content: '';
+  position: fixed; inset: 0;
+  background:
+    radial-gradient(ellipse 80% 60% at 50% 0%, rgba(232,153,58,0.04) 0%, transparent 60%),
+    radial-gradient(ellipse 60% 50% at 20% 80%, rgba(91,155,213,0.03) 0%, transparent 50%),
+    radial-gradient(ellipse 50% 40% at 80% 70%, rgba(139,126,200,0.03) 0%, transparent 50%);
+  pointer-events: none; z-index: 0;
+}
+
+body::after {
+  content: '';
+  position: fixed; inset: 0;
+  opacity: 0.03;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E");
+  background-size: 200px 200px;
+  pointer-events: none; z-index: 0;
+}
+
+#root {
+  position: relative; z-index: 1;
+  max-width: 1400px; margin: 0 auto;
+  padding: 0 32px;
+}
+
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--border-light); }
+
+@keyframes spin { to { transform: rotate(360deg); } }
