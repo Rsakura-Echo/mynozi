@@ -136,15 +136,23 @@ set PIP_INDEX=
 :: ── Frontend build ──
 echo.
 echo [5/5] 检查前端...
-if not exist "frontend\dist" (
-    echo 首次运行，构建前端...
+set REBUILD=0
+if not exist "frontend\dist\index.html" (
+    set REBUILD=1
+) else (
+    robocopy frontend\src frontend\dist\_chk *.tsx *.ts *.css /l /xo /njh /njs /ndl /ns >nul 2>&1
+    if !errorlevel! lss 8 if !errorlevel! gtr 0 set REBUILD=1
+    if exist "frontend\dist\_chk" rmdir /s /q "frontend\dist\_chk"
+)
+if !REBUILD! equ 1 (
+    echo 构建前端...
     cd frontend
     call npm install --silent
     call npm run build
     cd ..
     echo 前端构建完成
 ) else (
-    echo 前端已构建，跳过
+    echo 前端已是最新，跳过
 )
 
 :: ── Start ──

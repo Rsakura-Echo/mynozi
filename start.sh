@@ -37,13 +37,24 @@ echo "  依赖已就绪"
 
 # ── Frontend build ──
 echo "[3/3] 检查前端..."
-if [ ! -d "frontend/dist" ]; then
-    echo "  首次运行，构建前端..."
+NEED_BUILD=0
+if [ ! -f "frontend/dist/index.html" ]; then
+    NEED_BUILD=1
+else
+    # 检查源码是否有更新
+    if [ -n "$(find frontend/src -type f \( -name '*.tsx' -o -name '*.ts' -o -name '*.css' \) -newer frontend/dist/index.html 2>/dev/null)" ]; then
+        NEED_BUILD=1
+    fi
+fi
+if [ "$NEED_BUILD" = "1" ]; then
+    echo "  构建前端..."
     cd frontend
     npm install --silent
     npm run build
     cd ..
     echo "  前端构建完成"
+else
+    echo "  前端已是最新，跳过"
 fi
 
 # ── Start ──
