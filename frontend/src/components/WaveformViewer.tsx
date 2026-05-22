@@ -336,15 +336,21 @@ export default function WaveformViewer({
 
   return (
     <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: 24, minWidth: 0, overflow: 'hidden' }}>
+      <style>{`
+        .waveform-scroll::-webkit-scrollbar { height: 10px; }
+        .waveform-scroll::-webkit-scrollbar-track { background: var(--bg-base); border-radius: 5px; }
+        .waveform-scroll::-webkit-scrollbar-thumb { background: var(--border); border-radius: 5px; }
+        .waveform-scroll::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
+      `}</style>
       <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 16 }}>
         <span style={{ fontSize: 12, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>音频波形 + 字幕</span>
         <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--text-muted)' }}>
           {sentences.length > 0 ? `总时长 ${formatTime(totalDur)} · ${sentences.length} 句` : ''}
         </span>
       </div>
-      <div style={{ overflow: 'auto', width: '100%', borderRadius: 'var(--radius-sm)' }}>
       <div
         ref={containerRef}
+        className="waveform-scroll"
         onMouseDown={handleMouseDown}
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
@@ -360,8 +366,8 @@ export default function WaveformViewer({
           }
         }}
         style={{
-          position: 'relative', height: 160, borderRadius: 'var(--radius-sm)',
-          overflow: 'auto hidden', userSelect: 'none',
+          position: 'relative', height: 176, borderRadius: 'var(--radius-sm)',
+          overflowX: 'scroll', overflowY: 'hidden', userSelect: 'none',
           cursor: isDragging ? 'col-resize'
             : hoveredSentence ? 'col-resize'
             : 'crosshair',
@@ -550,7 +556,6 @@ export default function WaveformViewer({
           </div>
         )}
 
-      </div>
       </div>
     </div>
   );
