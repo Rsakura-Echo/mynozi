@@ -22,8 +22,16 @@ fi
 source .venv/bin/activate
 
 echo "[2/3] 安装 Python 依赖..."
-# 预安装纯 Python editdistance（修复 Python 3.13 编译问题）
+# 预安装纯 Python editdistance（修复 Python 3.13+ 编译问题）
 pip install -q backend/_editdistance_py 2>/dev/null || true
+# PyTorch（FunASR 模型推理需要）
+PY_MINOR=$(python -c "import sys; print(sys.version_info.minor)")
+if [ "$PY_MINOR" -ge 14 ]; then
+    echo "  Python 3.14+ 使用 PyTorch nightly..."
+    pip install torch torchaudio --index-url https://download.pytorch.org/whl/nightly/cpu
+else
+    pip install torch torchaudio
+fi
 pip install -r backend/requirements.txt
 echo "  依赖已就绪"
 

@@ -12,12 +12,11 @@ aiofiles>=23.2
 funasr>=1.0
 modelscope
 
+# PyTorch — FunASR 模型推理需要（start.bat/sh 会自动处理版本）
+# torch / torchaudio 由启动脚本安装，此处不重复声明
+
 # WhisperX（可选，仅当使用 WhisperX 引擎时需要）
-# 注意：Python 3.13 + Windows 下 whisperx 不可用（PyTorch 尚未适配）
-# 此时只使用 FunASR 即可，功能完整
-# whisperx>=3.8
-# torch>=2.0
-# torchaudio>=2.0
+# 注意：需手动 pip install whisperx torch torchaudio
 
 # Audio
 pydub>=0.25
