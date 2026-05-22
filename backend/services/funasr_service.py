@@ -7,6 +7,17 @@ from config import settings
 # FunASR 模型从 ModelScope 国内源下载，设置离线模式使用本地缓存
 os.environ.setdefault("MODELSCOPE_OFFLINE", "1")
 
+# 句子切分标点
+SENTENCE_END_PUNCT = set("。！？!")
+SENTENCE_PAUSE_PUNCT = set("，,；;：:")
+ALL_PUNCT = SENTENCE_END_PUNCT | SENTENCE_PAUSE_PUNCT
+
+# 句子时长限制（秒）
+MAX_SENTENCE_DURATION = 15.0   # 超过此值尝试在逗号/停顿处二次切分
+MIN_SENTENCE_DURATION = 0.3    # 短于此值合并到相邻句
+MIN_SENTENCE_CHARS = 2         # 少于此字符数视为无效
+WORD_PAUSE_THRESHOLD = 0.5     # 词间隔超过此秒数可切分（即使无标点）
+
 
 def _speaker_label_to_name(label: str) -> str:
     mapping = {
@@ -18,10 +29,18 @@ def _speaker_label_to_name(label: str) -> str:
 
 
 async def process_audio_with_funasr(project_id: str, file_path: str, file_hash: str = ""):
-    """后台任务：FunASR ASR + VAD + CAM++ 说话人分离。"""
+    """后台任务：FunASR ASR + 句子切分 + VAD + CAM++ 说话人分离。"""
     import asyncio
     loop = asyncio.get_event_loop()
     await loop.run_in_executor(None, _process_sync, project_id, file_path, file_hash)
+
+
+def _update_progress(project_id: str, stage: str, pct: float):
+    """更新处理进度（存储到全局 dict，由 status API 读取）。"""
+    _progress_store[project_id] = {"stage": stage, "pct": pct}
+
+
+_progress_store: dict = {}
 
 
 def _process_sync(project_id: str, file_path: str, file_hash: str = ""):
@@ -41,7 +60,8 @@ def _process_sync(project_id: str, file_path: str, file_hash: str = ""):
                 return
 
             try:
-                # Step 1: 提取音频
+                # ── Stage 1: 提取音频 ──
+                _update_progress(project_id, "提取音频...", 5)
                 src_path = Path(file_path)
                 audio_path = src_path
 
@@ -61,45 +81,47 @@ def _process_sync(project_id: str, file_path: str, file_hash: str = ""):
 
                 audio_str = str(audio_path)
 
-                # 加载音频数据（用于后续切段）
+                # 加载音频数据
                 audio_data, sample_rate = sf.read(audio_str, dtype="float32")
                 if audio_data.ndim > 1:
                     audio_data = audio_data.mean(axis=1)
 
-                # Step 2: 自动检测设备
+                total_duration = len(audio_data) / sample_rate
+                print(f"[funasr] Audio duration: {total_duration:.1f}s, sample_rate: {sample_rate}")
+
+                # ── Stage 2: 检测设备 ──
                 import torch
                 device = settings.asr_device
                 if device == "auto":
                     device = "cuda" if torch.cuda.is_available() else "cpu"
                 print(f"[funasr] Using device: {device}")
 
-                # Step 3: 加载模型
+                # ── Stage 3: 加载模型 ──
+                _update_progress(project_id, "加载 ASR 模型...", 10)
                 from funasr import AutoModel
 
                 print(f"[funasr] Loading models...")
 
-                # ASR: Paraformer（VAD + 标点 + 说话人）
                 asr_model = AutoModel(
                     model="iic/speech_paraformer-large-vad-punc-spk_asr_nat-zh-cn",
                     disable_update=True,
                     device=device,
                 )
 
-                # VAD
                 vad_model = AutoModel(
                     model="fsmn-vad",
                     disable_update=True,
                     device=device,
                 )
 
-                # 说话人识别
                 spk_model = AutoModel(
                     model="cam++",
                     disable_update=True,
                     device=device,
                 )
 
-                # Step 3: ASR 识别
+                # ── Stage 4: ASR 识别 ──
+                _update_progress(project_id, "ASR 语音识别中...", 20)
                 print(f"[funasr] Transcribing...")
                 asr_result = asr_model.generate(input=audio_str, batch_size_s=300)
 
@@ -113,106 +135,35 @@ def _process_sync(project_id: str, file_path: str, file_hash: str = ""):
                 timestamps = result_data.get("timestamp", [])  # [[start_ms, end_ms], ...]
                 asr_text = result_data.get("text", "")
 
-                # Step 4: VAD 检测语音段
-                print(f"[funasr] VAD detecting...")
+                print(f"[funasr] ASR text length: {len(asr_text)}, timestamps: {len(timestamps)}")
+
+                # ── Stage 5: 按标点切分句子 ──
+                _update_progress(project_id, "切分句子...", 40)
+                words = asr_text.split()
+                raw_sentences = _split_text_into_sentences(asr_text, words, timestamps)
+
+                # 二次处理：长句按逗号/停顿再切，短句合并
+                refined = _refine_sentences(raw_sentences)
+
+                print(f"[funasr] Raw sentences: {len(raw_sentences)}, refined: {len(refined)}")
+
+                # ── Stage 6: VAD + 说话人分离 ──
+                _update_progress(project_id, "说话人分离...", 60)
+                print(f"[funasr] VAD + speaker diarization...")
                 vad_result = vad_model.generate(input=audio_str)
                 vad_segments = vad_result[0].get("value", []) if vad_result else []
-                # vad_segments = [[start_ms, end_ms], ...]
 
-                # Step 5: 对每个 VAD 段提取说话人特征 + 聚类
-                if vad_segments and len(vad_segments) >= 2:
-                    print(f"[funasr] Extracting speaker embeddings for {len(vad_segments)} segments...")
-                    spk_embeddings = []
-                    valid_segments = []
+                # 为每个 VAD 段提取说话人特征
+                speaker_labels_per_vad = _assign_speakers_to_vad(
+                    vad_segments, audio_data, sample_rate, spk_model
+                )
 
-                    for seg in vad_segments:
-                        start_ms, end_ms = seg[0], seg[1]
-                        start_sample = int(start_ms * sample_rate / 1000)
-                        end_sample = int(end_ms * sample_rate / 1000)
-                        start_sample = max(0, start_sample)
-                        end_sample = min(len(audio_data), end_sample)
+                # 将每个句子分配给最近的 VAD 段（继承其说话人标签）
+                _assign_speaker_to_sentences(refined, vad_segments, speaker_labels_per_vad)
 
-                        if end_sample - start_sample < sample_rate * 0.3:
-                            continue  # 跳过太短的段（< 0.3秒）
-
-                        seg_audio = audio_data[start_sample:end_sample]
-
-                        try:
-                            spk_res = spk_model.generate(input=seg_audio)
-                            if spk_res and "spk_embedding" in spk_res[0]:
-                                emb = spk_res[0]["spk_embedding"]
-                                if hasattr(emb, "cpu"):
-                                    emb = emb.cpu().numpy().flatten()
-                                elif hasattr(emb, "numpy"):
-                                    emb = emb.numpy().flatten()
-                                else:
-                                    emb = np.array(emb).flatten()
-                                spk_embeddings.append(emb)
-                                valid_segments.append(seg)
-                        except Exception as e:
-                            print(f"[funasr] CAM++ error for segment {seg}: {e}")
-
-                    # 聚类：使用余弦距离
-                    if len(spk_embeddings) >= 2:
-                        from sklearn.cluster import AgglomerativeClustering
-                        embeddings_array = np.array(spk_embeddings)
-                        clustering = AgglomerativeClustering(
-                            n_clusters=None,
-                            distance_threshold=0.35,
-                            metric="cosine",
-                            linkage="average",
-                        )
-                        labels = clustering.fit_predict(embeddings_array)
-                        speaker_labels = [f"SPEAKER_{l:02d}" for l in labels]
-                        print(f"[funasr] Found {len(set(labels))} speakers for {len(valid_segments)} VAD segments")
-                    elif len(spk_embeddings) == 1:
-                        speaker_labels = ["SPEAKER_00"]
-                    else:
-                        speaker_labels = []
-
-                    # Step 6: 用 VAD 段 + 说话人标签分割 ASR 文本
-                    sub_segments = []
-                    for i in range(len(valid_segments)):
-                        vad_start_ms, vad_end_ms = valid_segments[i][0], valid_segments[i][1]
-
-                        # 找出落在这个 VAD 段内的 ASR words（按时间戳中点）
-                        seg_text_parts = []
-                        seg_start_ms = None
-                        seg_end_ms = None
-                        words = asr_text.split()
-
-                        for j, ts in enumerate(timestamps):
-                            word_start_ms, word_end_ms = ts[0], ts[1]
-                            word_mid = (word_start_ms + word_end_ms) / 2
-                            if vad_start_ms <= word_mid <= vad_end_ms:
-                                if seg_start_ms is None:
-                                    seg_start_ms = word_start_ms
-                                seg_end_ms = word_end_ms
-                                if j < len(words):
-                                    seg_text_parts.append(words[j])
-
-                        text = "".join(seg_text_parts).strip()
-                        # 过滤无意义短句（纯标点或空）
-                        if not text or all(c in "，。、；：？！""''（）《》…—·" for c in text):
-                            continue
-
-                        spk = speaker_labels[i] if i < len(speaker_labels) else "SPEAKER_00"
-                        sub_segments.append({
-                            "speaker": spk,
-                            "text": text,
-                            "start": (seg_start_ms or vad_start_ms) / 1000.0,
-                            "end": (seg_end_ms or vad_end_ms) / 1000.0,
-                        })
-                else:
-                    # 无 VAD 段或只有一段：全文作为一句
-                    print(f"[funasr] No VAD segments, using full text as one sentence...")
-                    text = asr_text.replace(" ", "")
-                    sub_segments = [{
-                        "speaker": "SPEAKER_00",
-                        "text": text,
-                        "start": 0.0,
-                        "end": len(audio_data) / sample_rate,
-                    }]
+                # ── Stage 7: 合并相邻同说话人短句 ──
+                _update_progress(project_id, "后处理...", 80)
+                sub_segments = _merge_adjacent_same_speaker(refined)
 
                 if not sub_segments:
                     project.status = "error"
@@ -220,26 +171,18 @@ def _process_sync(project_id: str, file_path: str, file_hash: str = ""):
                     await session.commit()
                     return
 
-                # Step 7: 合并相邻同说话人的段
-                merged = []
-                for sub in sub_segments:
-                    if merged and merged[-1]["speaker"] == sub["speaker"]:
-                        # 合并文本和时间
-                        merged[-1]["text"] += sub["text"]
-                        merged[-1]["end"] = sub["end"]
-                    else:
-                        merged.append(sub)
-                sub_segments = merged
+                print(f"[funasr] Final segments: {len(sub_segments)}")
 
-                # Step 8: 收集说话人
-                speaker_sub_segs = {}
+                # ── Stage 8: 写入数据库 ──
+                _update_progress(project_id, "写入结果...", 90)
+
+                speaker_sub_segs: dict[str, list] = {}
                 for sub in sub_segments:
                     spk = sub["speaker"]
                     if spk not in speaker_sub_segs:
                         speaker_sub_segs[spk] = []
                     speaker_sub_segs[spk].append(sub)
 
-                # Step 9: 写入说话人
                 speaker_map = {}
                 for spk_label in sorted(speaker_sub_segs.keys()):
                     speaker = Speaker(
@@ -250,7 +193,6 @@ def _process_sync(project_id: str, file_path: str, file_hash: str = ""):
                     await session.flush()
                     speaker_map[spk_label] = speaker.id
 
-                # Step 10: 写入句子
                 sort_order = 0
                 for sub in sub_segments:
                     sentence = Sentence(
@@ -264,7 +206,7 @@ def _process_sync(project_id: str, file_path: str, file_hash: str = ""):
                     session.add(sentence)
                     sort_order += 1
 
-                # Step 11: 为每个说话人提取参考音频（取最长句子）
+                # 为每个说话人提取参考音频（取最长句子）
                 for spk_label, speaker_id in speaker_map.items():
                     spk_segs = speaker_sub_segs[spk_label]
                     if not spk_segs:
@@ -286,6 +228,8 @@ def _process_sync(project_id: str, file_path: str, file_hash: str = ""):
                 if file_hash:
                     project.file_hash = file_hash
                 await session.commit()
+
+                _update_progress(project_id, "完成", 100)
                 print(f"[funasr] Done: {len(sub_segments)} sentences, {len(speaker_map)} speakers")
 
             except Exception as e:
@@ -298,3 +242,322 @@ def _process_sync(project_id: str, file_path: str, file_hash: str = ""):
                 await session.commit()
 
     asyncio.run(_update())
+
+
+# ── 句子切分 ──
+
+def _split_text_into_sentences(
+    full_text: str, words: list[str], timestamps: list,
+) -> list[dict]:
+    """按标点符号（。！？）将 ASR 文本 + 时间戳切分为句子。
+
+    额外规则：
+    - 如果两个词之间的时间间隔 > WORD_PAUSE_THRESHOLD，强制在此处切分
+    - 每个句子携带其对应的词列表和时间范围
+    """
+    sentences = []
+    current_words: list[str] = []
+    current_ts: list[list] = []
+
+    # 预处理：将文本按标点位置标注
+    # words[i] 可能是 "你好" "。" "世界" 这样的，标点在单独的 token 中
+    # 也可能标点附着在前一个词上："你好。" "世界"
+    for i, (word, ts) in enumerate(zip(words, timestamps)):
+        # 检查词中是否包含标点
+        stripped = word.rstrip("。！？!，,；;：:")
+        has_end_punct = any(c in SENTENCE_END_PUNCT for c in word)
+        has_pause_punct = any(c in SENTENCE_PAUSE_PUNCT for c in word)
+
+        # 词间隔检测（长停顿 = 句子边界）
+        pause_split = False
+        if i > 0 and len(timestamps) > i:
+            prev_end = timestamps[i - 1][1] if len(timestamps[i - 1]) > 1 else 0
+            curr_start = ts[0] if len(ts) > 0 else 0
+            gap = (curr_start - prev_end) / 1000.0
+            if gap > WORD_PAUSE_THRESHOLD:
+                pause_split = True
+
+        if pause_split and current_words:
+            # 长停顿 → 提交当前句子
+            sentences.append({
+                "text": _rebuild_text(current_words),
+                "start_ms": current_ts[0][0] if current_ts else 0,
+                "end_ms": current_ts[-1][1] if current_ts else 0,
+            })
+            current_words = []
+            current_ts = []
+
+        if stripped:
+            current_words.append(stripped)
+        current_ts.append(ts)
+
+        # 句子结束标点 → 切分
+        if has_end_punct and current_words:
+            text = _rebuild_text(current_words)
+            if len(text) >= MIN_SENTENCE_CHARS:
+                sentences.append({
+                    "text": text,
+                    "start_ms": current_ts[0][0] if current_ts else 0,
+                    "end_ms": current_ts[-1][1] if current_ts else 0,
+                })
+            current_words = []
+            current_ts = []
+
+    # 残留词
+    if current_words:
+        text = _rebuild_text(current_words)
+        if len(text) >= MIN_SENTENCE_CHARS:
+            sentences.append({
+                "text": text,
+                "start_ms": current_ts[0][0] if current_ts else 0,
+                "end_ms": current_ts[-1][1] if current_ts else 0,
+            })
+
+    return sentences
+
+
+def _rebuild_text(words: list[str]) -> str:
+    """重建中文文本（去除多余空格）。"""
+    return "".join(words).strip()
+
+
+def _refine_sentences(raw: list[dict]) -> list[dict]:
+    """后处理优化：
+    1. 超过 MAX_SENTENCE_DURATION 的句子在逗号/停顿处再切分
+    2. 过短句子合并到相邻句
+    """
+    if not raw:
+        return raw
+
+    # Step 1: 长句二次切分
+    split_result = []
+    for seg in raw:
+        duration = (seg["end_ms"] - seg["start_ms"]) / 1000.0
+        if duration > MAX_SENTENCE_DURATION:
+            # 尝试在逗号处切分
+            sub_sentences = _split_long_sentence(seg)
+            split_result.extend(sub_sentences)
+        else:
+            split_result.append(seg)
+
+    if not split_result:
+        return raw
+
+    # Step 2: 合并过短句子到相邻句（优先合并到更短的那边）
+    merged = []
+    for seg in split_result:
+        duration = (seg["end_ms"] - seg["start_ms"]) / 1000.0
+        text_len = len(seg["text"])
+
+        if duration < MIN_SENTENCE_DURATION or text_len < MIN_SENTENCE_CHARS:
+            # 合并到前一句
+            if merged:
+                prev = merged[-1]
+                prev["text"] += seg["text"]
+                prev["end_ms"] = seg["end_ms"]
+            # 否则下一轮循环会把它合并到后一句
+            continue
+
+        # 如果前一句太短，当前句吞并前句
+        if merged:
+            prev_duration = (merged[-1]["end_ms"] - merged[-1]["start_ms"]) / 1000.0
+            if prev_duration < MIN_SENTENCE_DURATION and len(merged[-1]["text"]) < MIN_SENTENCE_CHARS * 3:
+                seg["text"] = merged[-1]["text"] + seg["text"]
+                seg["start_ms"] = merged[-1]["start_ms"]
+                merged.pop()
+
+        merged.append(seg)
+
+    return merged
+
+
+def _split_long_sentence(seg: dict) -> list[dict]:
+    """将长句在逗号、分号等次要停顿处切分。"""
+    text = seg["text"]
+    duration_ms = seg["end_ms"] - seg["start_ms"]
+
+    # 找到所有停顿标点的位置
+    split_positions = []
+    for i, ch in enumerate(text):
+        if ch in SENTENCE_PAUSE_PUNCT:
+            split_positions.append(i)
+
+    if len(split_positions) < 2:
+        # 标点太少，按时间均匀切分
+        return _split_by_duration(seg)
+
+    # 按标点位置切分
+    result = []
+    prev_pos = 0
+    ratio_per_char = duration_ms / max(len(text), 1)
+
+    for pos in split_positions:
+        chunk = text[prev_pos:pos + 1].strip("，,；;：:")
+        if len(chunk) >= MIN_SENTENCE_CHARS:
+            chunk_start_ms = seg["start_ms"] + int(prev_pos * ratio_per_char)
+            chunk_end_ms = seg["start_ms"] + int((pos + 1) * ratio_per_char)
+            result.append({"text": chunk, "start_ms": chunk_start_ms, "end_ms": chunk_end_ms})
+        prev_pos = pos + 1
+
+    # 最后一段
+    if prev_pos < len(text):
+        chunk = text[prev_pos:].strip()
+        if len(chunk) >= MIN_SENTENCE_CHARS:
+            chunk_start_ms = seg["start_ms"] + int(prev_pos * ratio_per_char)
+            result.append({"text": chunk, "start_ms": chunk_start_ms, "end_ms": seg["end_ms"]})
+
+    return result if result else [seg]
+
+
+def _split_by_duration(seg: dict) -> list[dict]:
+    """无标点时，按时间均匀切分长句。"""
+    import math
+    duration = (seg["end_ms"] - seg["start_ms"]) / 1000.0
+    text = seg["text"]
+    parts = max(1, math.ceil(duration / MAX_SENTENCE_DURATION))
+    chars_per_part = math.ceil(len(text) / parts)
+    result = []
+    time_per_part = duration / parts
+
+    for i in range(parts):
+        chunk = text[i * chars_per_part:(i + 1) * chars_per_part]
+        if len(chunk) >= MIN_SENTENCE_CHARS:
+            result.append({
+                "text": chunk,
+                "start_ms": int(seg["start_ms"] + i * time_per_part * 1000),
+                "end_ms": int(seg["start_ms"] + (i + 1) * time_per_part * 1000),
+            })
+
+    return result if result else [seg]
+
+
+# ── 说话人分配 ──
+
+def _assign_speakers_to_vad(
+    vad_segments: list, audio_data, sample_rate: int, spk_model,
+) -> list[str]:
+    """对每个 VAD 段运行 CAM++ 说话人识别并聚类。返回每个段的说话人标签列表。"""
+    import numpy as np
+
+    if not vad_segments or len(vad_segments) < 2:
+        # 只有 0 或 1 个 VAD 段 → 所有人都是 SPEAKER_00
+        return ["SPEAKER_00"] * len(vad_segments)
+
+    print(f"[funasr] Extracting speaker embeddings for {len(vad_segments)} VAD segments...")
+    spk_embeddings = []
+    valid_indices = []
+
+    for idx, seg in enumerate(vad_segments):
+        start_ms, end_ms = seg[0], seg[1]
+        start_sample = int(start_ms * sample_rate / 1000)
+        end_sample = int(end_ms * sample_rate / 1000)
+        start_sample = max(0, start_sample)
+        end_sample = min(len(audio_data), end_sample)
+
+        if end_sample - start_sample < sample_rate * 0.5:
+            continue  # 太短的段 (< 0.5秒)
+
+        seg_audio = audio_data[start_sample:end_sample]
+
+        try:
+            spk_res = spk_model.generate(input=seg_audio)
+            if spk_res and "spk_embedding" in spk_res[0]:
+                emb = spk_res[0]["spk_embedding"]
+                if hasattr(emb, "cpu"):
+                    emb = emb.cpu().numpy().flatten()
+                elif hasattr(emb, "numpy"):
+                    emb = emb.numpy().flatten()
+                else:
+                    emb = np.array(emb).flatten()
+                spk_embeddings.append(emb)
+                valid_indices.append(idx)
+        except Exception as e:
+            print(f"[funasr] CAM++ error for segment {seg}: {e}")
+
+    # 聚类
+    if len(spk_embeddings) >= 2:
+        from sklearn.cluster import AgglomerativeClustering
+        embeddings_array = np.array(spk_embeddings)
+        clustering = AgglomerativeClustering(
+            n_clusters=None,
+            distance_threshold=0.35,
+            metric="cosine",
+            linkage="average",
+        )
+        labels = clustering.fit_predict(embeddings_array)
+        num_speakers = len(set(labels))
+        print(f"[funasr] Found {num_speakers} speakers for {len(valid_indices)} VAD segments")
+    elif len(spk_embeddings) == 1:
+        labels = [0]
+        num_speakers = 1
+    else:
+        labels = []
+        num_speakers = 0
+
+    # 构建完整标签列表（未分析的段归为 SPEAKER_00）
+    idx_to_label = {valid_indices[i]: int(labels[i]) for i in range(len(labels))}
+    speaker_labels = []
+    for i in range(len(vad_segments)):
+        lbl = idx_to_label.get(i, 0)
+        speaker_labels.append(f"SPEAKER_{lbl:02d}")
+
+    return speaker_labels
+
+
+def _assign_speaker_to_sentences(
+    sentences: list[dict], vad_segments: list, speaker_labels: list[str],
+):
+    """将每个句子分配给时间上重叠最多的 VAD 段，继承其说话人标签。"""
+    for seg in sentences:
+        seg_start = seg["start_ms"]
+        seg_end = seg["end_ms"]
+        seg_mid = (seg_start + seg_end) / 2
+
+        best_idx = 0
+        best_overlap = 0
+
+        for idx, vs in enumerate(vad_segments):
+            vad_start, vad_end = vs[0], vs[1]
+
+            # 计算重叠时长
+            overlap_start = max(seg_start, vad_start)
+            overlap_end = min(seg_end, vad_end)
+            overlap = max(0, overlap_end - overlap_start)
+
+            # 如果句子中点落在 VAD 段内，额外加权
+            bonus = 1000 if vad_start <= seg_mid <= vad_end else 0
+            score = overlap + bonus
+
+            if score > best_overlap:
+                best_overlap = score
+                best_idx = idx
+
+        seg["speaker"] = speaker_labels[best_idx] if best_idx < len(speaker_labels) else "SPEAKER_00"
+
+
+def _merge_adjacent_same_speaker(segments: list[dict]) -> list[dict]:
+    """合并相邻同说话人的句子（但保留合理的时长上限）。"""
+    if not segments:
+        return segments
+
+    merged = []
+    for seg in segments:
+        if not merged:
+            merged.append(seg)
+            continue
+
+        prev = merged[-1]
+        prev_dur = (prev["end_ms"] - prev["start_ms"]) / 1000.0
+        cur_dur = (seg["end_ms"] - seg["start_ms"]) / 1000.0
+
+        # 同说话人 + 合并后不超长 → 合并
+        if (
+            seg.get("speaker") == prev.get("speaker")
+            and prev_dur + cur_dur <= MAX_SENTENCE_DURATION * 1.5
+        ):
+            prev["text"] += seg["text"]
+            prev["end_ms"] = seg["end_ms"]
+        else:
+            merged.append(seg)
+
+    return merged

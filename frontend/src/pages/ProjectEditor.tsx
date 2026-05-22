@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { getProject, uploadFile, updateSentence, softDeleteSentence, splitSentence, addSentenceFromRegion, undoLastAction, generateSentence, generateAll, exportAll, getSentenceAudioUrl, getOriginalAudioUrl } from '../api';
+import { getProject, getProjectStatus, uploadFile, updateSentence, softDeleteSentence, splitSentence, addSentenceFromRegion, undoLastAction, generateSentence, generateAll, exportAll, getSentenceAudioUrl, getOriginalAudioUrl } from '../api';
 import { useToast } from '../components/ToastProvider';
 import WaveformViewer from '../components/WaveformViewer';
 import SentenceRow from '../components/SentenceRow';
@@ -15,6 +15,8 @@ export default function ProjectEditor() {
   const [showBatchConfirm, setShowBatchConfirm] = useState(false);
   const [checkedIds, setCheckedIds] = useState<Set<string>>(new Set());
   const [playingSid, setPlayingSid] = useState<string | null>(null);
+  const [progressStage, setProgressStage] = useState('');
+  const [progressPct, setProgressPct] = useState(0);
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
   const sentences = project?.sentences || [];
@@ -46,12 +48,23 @@ export default function ProjectEditor() {
 
   useEffect(() => { load(); }, [load]);
 
-  // Poll while processing
+  // Poll while processing (with progress)
   useEffect(() => {
-    if (!project || project.status !== 'processing') return;
-    const t = setInterval(load, 2000);
+    if (!project || project.status !== 'processing') {
+      setProgressStage('');
+      setProgressPct(0);
+      return;
+    }
+    const t = setInterval(async () => {
+      try {
+        const { data } = await getProjectStatus(id!);
+        if (data.stage) setProgressStage(data.stage);
+        if (data.pct != null) setProgressPct(data.pct);
+        if (data.status !== 'processing') load();
+      } catch { /* ignore */ }
+    }, 1500);
     return () => clearInterval(t);
-  }, [project?.status, load]);
+  }, [project?.status, id, load]);
 
   const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -292,10 +305,22 @@ export default function ProjectEditor() {
         <div style={{ textAlign: 'center', padding: 60 }}>
           <div style={{ fontSize: 40, marginBottom: 16 }}>⏳</div>
           <h4>正在分析音频...</h4>
-          <p style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 24 }}>WhisperX 语音识别 + 说话人分离</p>
-          <div style={{ height: 3, background: 'var(--border)', borderRadius: 2, width: 300, margin: '0 auto', overflow: 'hidden' }}>
-            <div style={{ height: '100%', width: '65%', background: 'var(--amber)', borderRadius: 2, transition: 'width 0.5s' }} />
+          <p style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 8 }}>
+            {progressStage || 'FunASR 语音识别 + 说话人分离'}
+          </p>
+          <div style={{ height: 4, background: 'var(--border)', borderRadius: 2, width: 300, margin: '0 auto', overflow: 'hidden' }}>
+            <div style={{
+              height: '100%',
+              width: `${Math.max(5, progressPct || 50)}%`,
+              background: 'var(--amber)', borderRadius: 2,
+              transition: 'width 0.8s ease',
+            }} />
           </div>
+          {progressPct > 0 && (
+            <p style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 8 }}>
+              {progressPct}%
+            </p>
+          )}
         </div>
       )}
 

@@ -198,9 +198,19 @@ async def upload_file(
 
 @router.get("/status")
 async def get_processing_status(project_id: str, session: AsyncSession = Depends(get_session)):
-    """查询 ASR 处理进度。"""
+    """查询 ASR 处理进度（含分阶段信息）。"""
     result = await session.execute(select(Project).where(Project.id == project_id))
     project = result.scalar_one_or_none()
     if not project:
         raise HTTPException(status_code=404, detail="项目不存在")
+
+    # 读取实时进度（funasr_service 写入的 _progress_store）
+    from services.funasr_service import _progress_store
+    progress = _progress_store.get(project_id)
+    if progress and project.status == "processing":
+        return {
+            "status": project.status,
+            "stage": progress["stage"],
+            "pct": progress["pct"],
+        }
     return {"status": project.status}

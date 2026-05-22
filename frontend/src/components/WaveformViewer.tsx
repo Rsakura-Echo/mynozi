@@ -51,8 +51,12 @@ export default function WaveformViewer({
   const [regionLoading, setRegionLoading] = useState(false);
 
   const DRAG_MIN_PX = 5;
+  // 像素/秒：控制波形水平拉伸比例
+  const PX_PER_SECOND = 80;
+  const MIN_CANVAS_WIDTH = 800;
 
   const totalDur = sentences.length > 0 ? sentences[sentences.length - 1].end_time : 0;
+  const canvasW = Math.max(MIN_CANVAS_WIDTH, totalDur * PX_PER_SECOND);
 
   // 全局 mouseup：处理拖拽到容器外松开的情况
   useEffect(() => {
@@ -86,16 +90,16 @@ export default function WaveformViewer({
   const getSentenceAtX = useCallback((x: number): Sentence | null => {
     if (!containerRef.current || sentences.length === 0) return null;
     const rect = containerRef.current.getBoundingClientRect();
-    const relX = x - rect.left;
-    const time = (relX / rect.width) * totalDur;
+    const relX = x - rect.left + containerRef.current.scrollLeft;
+    const time = (relX / canvasW) * totalDur;
     return sentences.find(s => time >= s.start_time && time <= s.end_time) || null;
-  }, [sentences, totalDur]);
+  }, [sentences, totalDur, canvasW]);
 
   const getTimeAtX = useCallback((x: number): number => {
     if (!containerRef.current) return 0;
     const rect = containerRef.current.getBoundingClientRect();
-    return ((x - rect.left) / rect.width) * totalDur;
-  }, [totalDur]);
+    return ((x - rect.left + containerRef.current.scrollLeft) / canvasW) * totalDur;
+  }, [totalDur, canvasW]);
 
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
     if (!containerRef.current) return;
@@ -169,15 +173,15 @@ export default function WaveformViewer({
     if (!canvas || !container || sentences.length === 0) return;
 
     const dpr = window.devicePixelRatio || 1;
-    const rect = container.getBoundingClientRect();
-    canvas.width = rect.width * dpr;
-    canvas.height = rect.height * dpr;
-    canvas.style.width = rect.width + 'px';
-    canvas.style.height = rect.height + 'px';
+    const h = 160;
+    canvas.width = canvasW * dpr;
+    canvas.height = h * dpr;
+    canvas.style.width = canvasW + 'px';
+    canvas.style.height = h + 'px';
 
     const ctx = canvas.getContext('2d')!;
     ctx.scale(dpr, dpr);
-    const w = rect.width, h = rect.height;
+    const w = canvasW;
 
     ctx.clearRect(0, 0, w, h);
 
@@ -337,7 +341,6 @@ export default function WaveformViewer({
         onMouseUp={handleMouseUp}
         onMouseLeave={handleMouseLeave}
         onClick={(e) => {
-          // 拖拽后不再触发 click
           if (hasDragged) return;
           const s = getSentenceAtX(e.clientX);
           if (!s) return;
@@ -349,13 +352,13 @@ export default function WaveformViewer({
         }}
         style={{
           position: 'relative', height: 160, borderRadius: 'var(--radius-sm)',
-          overflow: 'hidden', userSelect: 'none',
+          overflowX: 'auto', overflowY: 'hidden', userSelect: 'none',
           cursor: isDragging ? 'col-resize'
             : hoveredSentence ? 'col-resize'
             : 'crosshair',
         }}
       >
-        <canvas ref={canvasRef} style={{ pointerEvents: 'none' }} />
+        <canvas ref={canvasRef} style={{ pointerEvents: 'none', display: 'block' }} />
 
         {selectedSid && sentences.find(s => s.id === selectedSid) && (
           <div style={{
@@ -366,36 +369,42 @@ export default function WaveformViewer({
           }} />
         )}
 
-        {hoveredSentence && (
-          <>
-            <div style={{
-              position: 'absolute', top: 0, bottom: 0, width: 1,
-              background: 'rgba(255,255,255,0.5)',
-              left: cursorX - (containerRef.current?.getBoundingClientRect().left || 0),
-              pointerEvents: 'none', zIndex: 2,
-            }} />
-            <div style={{
-              position: 'absolute', bottom: 4, left: cursorX - (containerRef.current?.getBoundingClientRect().left || 0) + 10,
-              background: 'rgba(0,0,0,0.75)', color: '#fff', fontSize: 10,
-              padding: '2px 6px', borderRadius: 4, pointerEvents: 'none', zIndex: 3,
-              fontFamily: 'var(--font-mono)',
-            }}>
-              {formatTime(cursorTime)}
-            </div>
-            <div style={{
-              position: 'absolute', top: 4, left: (hoveredSentence.end_time / totalDur) * (containerRef.current?.getBoundingClientRect().width || 0) - 22,
-              zIndex: 3, display: 'flex', gap: 3,
-            }}>
-              <button onClick={e => { e.stopPropagation(); onDeleteSentence(hoveredSentence.id); setHoveredSentence(null); }}
-                title="删除此分段" style={{
-                  width: 20, height: 20, borderRadius: '50%',
-                  background: 'rgba(208,112,138,0.85)', color: '#fff',
-                  border: 'none', cursor: 'pointer', fontSize: 14,
-                  lineHeight: '20px', textAlign: 'center', padding: 0,
-                }}>×</button>
-            </div>
-          </>
-        )}
+        {hoveredSentence && (() => {
+          const scrollLeft = containerRef.current?.scrollLeft || 0;
+          const contLeft = containerRef.current?.getBoundingClientRect().left || 0;
+          const hoverLeft = (hoveredSentence.start_time / totalDur) * canvasW;
+          return (
+            <>
+              <div style={{
+                position: 'absolute', top: 0, bottom: 0, width: 1,
+                background: 'rgba(255,255,255,0.5)',
+                left: cursorX - contLeft + scrollLeft,
+                pointerEvents: 'none', zIndex: 2,
+              }} />
+              <div style={{
+                position: 'absolute', bottom: 4,
+                left: cursorX - contLeft + scrollLeft + 10,
+                background: 'rgba(0,0,0,0.75)', color: '#fff', fontSize: 10,
+                padding: '2px 6px', borderRadius: 4, pointerEvents: 'none', zIndex: 3,
+                fontFamily: 'var(--font-mono)',
+              }}>
+                {formatTime(cursorTime)}
+              </div>
+              <div style={{
+                position: 'absolute', top: 4, left: hoverLeft - 22,
+                zIndex: 3, display: 'flex', gap: 3,
+              }}>
+                <button onClick={e => { e.stopPropagation(); onDeleteSentence(hoveredSentence.id); setHoveredSentence(null); }}
+                  title="删除此分段" style={{
+                    width: 20, height: 20, borderRadius: '50%',
+                    background: 'rgba(208,112,138,0.85)', color: '#fff',
+                    border: 'none', cursor: 'pointer', fontSize: 14,
+                    lineHeight: '20px', textAlign: 'center', padding: 0,
+                  }}>×</button>
+              </div>
+            </>
+          );
+        })()}
 
         {showSplitConfirm && splitTarget && (
           <div style={{
