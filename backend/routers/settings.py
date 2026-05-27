@@ -231,7 +231,8 @@ def _install_whisperx(python_exe: str):
     """安装 whisperx + 依赖，锁定兼容版本。
 
     whisperx 3.2.0 与新版 pyannote-audio (>=4.0) 和 huggingface-hub (>=1.0) 不兼容。
-    分步安装：先装 ctranslate2（破锁）→ faster-whisper → whisperx → 补装缺失依赖 → 锁定兼容版本。
+    关键顺序：huggingface-hub 版本锁定必须放在 faster-whisper 之前，
+    否则后者会拉入不兼容的新版 hub，导致 is_offline_mode 等 API 缺失。
     """
     import subprocess, importlib
 
@@ -265,28 +266,32 @@ def _install_whisperx(python_exe: str):
                 [python_exe, "-m", "pip", "install", "torch", "torchaudio",
                  "--index-url", "https://download.pytorch.org/whl/cpu"], timeout=900)
 
-    # 2. ctranslate2（破掉 whisperx 对 ctranslate2==4.4.0 的死锁）
+    # 2. huggingface-hub 版本锁定（必须在其他依赖之前，upgrade=True 确保降级/升级到兼容版本）
+    # whisperx 3.2.0 需要 is_offline_mode（hub>=0.20,<1.0），1.0+ 移除了该函数
+    _pip(["huggingface-hub>=0.20,<1.0"], upgrade=True)
+
+    # 3. ctranslate2（破掉 whisperx 对 ctranslate2==4.4.0 的死锁）
     try:
         import ctranslate2  # noqa: F401
         print("[settings] ctranslate2 already installed")
     except ImportError:
         _pip(["ctranslate2"], upgrade=False)
 
-    # 3. faster-whisper（版本不限，compat_patches 处理 API 兼容）
+    # 4. faster-whisper（版本不限，compat_patches 处理 API 兼容）
     try:
         import faster_whisper  # noqa: F401
         print(f"[settings] faster-whisper already installed")
     except ImportError:
         _pip(["faster-whisper"], upgrade=False)
 
-    # 4. whisperx --no-deps（绕过 ctranslate2==4.4.0 死锁，依赖已在 1-3 步安装）
+    # 5. whisperx --no-deps（绕过 ctranslate2==4.4.0 死锁，依赖已在前几步安装）
     try:
         import whisperx  # noqa: F401
         print(f"[settings] whisperx already installed")
     except ImportError:
         _pip(["whisperx"], upgrade=False, no_deps=True)
 
-    # 5. 补装 whisperx 运行时依赖 + 锁定兼容版本（--no-deps 跳过的依赖在此覆盖）
+    # 6. 补装 whisperx 运行时依赖（--no-deps 跳过的依赖在此覆盖）
     for mod_name, pip_name in [
         ("transformers", "transformers"),
         ("nltk", "nltk"),
@@ -299,8 +304,6 @@ def _install_whisperx(python_exe: str):
         except ImportError:
             print(f"[settings] {mod_name} missing, installing...")
             _pip([pip_name], upgrade=False)
-
-    _pip(["huggingface-hub>=0.20,<1.0"], upgrade=False)
 
     import whisperx
     print(f"[settings] whisperx ready")
