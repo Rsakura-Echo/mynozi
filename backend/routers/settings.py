@@ -367,27 +367,39 @@ def _install_whisperx(python_exe: str):
                 timeout=900,
             )
 
-    # Step 2: 先装 ctranslate2（不限定版本），破掉 whisperx 对 ctranslate2==4.4.0 的锁定
+    # Step 2: 先装 ctranslate2（不限定版本），破掉 ctranslate2==4.4.0 死锁
     try:
         import ctranslate2  # noqa: F401
         print(f"[settings] ctranslate2 already installed")
     except ImportError:
         _try_pip(["ctranslate2"])
 
-    # Step 3: 带 deps 安装 whisperx（ctranslate2 已就位，pip 不会再去拉 4.4.0）
+    # Step 3: 锁定 faster-whisper 0.10.3（whisperx 3.2.0 + Python 3.14 唯一兼容版本）
+    # 1.0.0 的 TranscriptionOptions API 与 whisperx 3.2.0 不兼容
+    try:
+        import faster_whisper  # noqa: F401
+        from importlib.metadata import version
+        fw_ver = version("faster-whisper")
+        if fw_ver >= "1.0":
+            print(f"[settings] faster-whisper {fw_ver} incompatible, downgrading to 0.10.3...")
+            _try_pip(["faster-whisper==0.10.3", "--force-reinstall", "--no-deps"])
+            _try_pip(["ctranslate2"])  # re-install ctranslate2 after force-reinstall
+    except ImportError:
+        _try_pip(["faster-whisper==0.10.3"])
+
+    # Step 4: 安装 whisperx（带 deps，faster-whisper 已锁定兼容版本）
     try:
         import whisperx  # noqa: F401
         print(f"[settings] whisperx {getattr(whisperx, '__version__', '?')} already installed")
     except ImportError:
         _try_pip(["whisperx"])
 
-    # Step 4: 验证关键依赖链（逐个检查，缺了就装）
+    # Step 5: 验证关键依赖链
     import importlib
     _deps = [
         ("transformers", "transformers"),
         ("nltk", "nltk"),
         ("pyannote.audio", "pyannote-audio"),
-        ("faster_whisper", "faster-whisper"),
     ]
     for mod_name, pip_name in _deps:
         try:
@@ -436,6 +448,23 @@ def _download_whisperx_model(size: str):
         message=f"正在下载 WhisperX {size} 模型（首次约 3-5 分钟，共约 3GB）...",
         total=2, done=1,
     )
+
+    # 确保 faster-whisper 版本兼容（1.0.0 与 whisperx 3.2.0 不兼容）
+    from importlib.metadata import version as _pkg_version
+    try:
+        fw_ver = _pkg_version("faster-whisper")
+        if fw_ver >= "1.0":
+            print(f"[settings] faster-whisper {fw_ver} incompatible, downgrading to 0.10.3...")
+            subprocess.check_call(
+                [sys.executable, "-m", "pip", "install", "faster-whisper==0.10.3", "--force-reinstall", "--no-deps"],
+                timeout=300,
+            )
+            subprocess.check_call(
+                [sys.executable, "-m", "pip", "install", "ctranslate2"],
+                timeout=300,
+            )
+    except Exception:
+        pass  # not installed yet, install step above handles it
 
     # 确保 transformers 已安装（whisperx.load_model 内部依赖它）
     try:
