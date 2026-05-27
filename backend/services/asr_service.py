@@ -90,9 +90,22 @@ def _process_sync(project_id: str, file_path: str, file_hash: str = ""):
                 compute_type = "float16" if device == "cuda" else "int8"
                 print(f"[asr] Loading WhisperX model={_model_size} device={device} compute_type={compute_type}")
 
-                asr_model = whisperx.load_model(
-                    _model_size, device=device, compute_type=compute_type
-                )
+                old_offline = os.environ.get("HF_HUB_OFFLINE", None)
+                old_endpoint = os.environ.get("HF_ENDPOINT", "")
+                os.environ["HF_HUB_OFFLINE"] = "0"
+                if not old_endpoint:
+                    os.environ["HF_ENDPOINT"] = "https://hf-mirror.com"
+                try:
+                    asr_model = whisperx.load_model(
+                        _model_size, device=device, compute_type=compute_type
+                    )
+                finally:
+                    if old_offline is not None:
+                        os.environ["HF_HUB_OFFLINE"] = old_offline
+                    else:
+                        os.environ.pop("HF_HUB_OFFLINE", None)
+                    if not old_endpoint:
+                        os.environ.pop("HF_ENDPOINT", None)
 
                 # ── Stage 3: ASR 转写 ──
                 _update_progress(project_id, "ASR 语音识别...", 20)

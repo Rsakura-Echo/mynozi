@@ -447,8 +447,10 @@ def _download_whisperx_model(size: str):
             timeout=300,
         )
 
-    old_offline = os.environ.pop("HF_HUB_OFFLINE", None)
+    old_offline = os.environ.get("HF_HUB_OFFLINE", None)
     old_endpoint = os.environ.get("HF_ENDPOINT", "")
+    # 显式设为 0，覆盖 start.bat 中 HF_HUB_OFFLINE=1 的离线限制
+    os.environ["HF_HUB_OFFLINE"] = "0"
     if not old_endpoint:
         os.environ["HF_ENDPOINT"] = "https://hf-mirror.com"
     try:
@@ -472,6 +474,8 @@ def _download_whisperx_model(size: str):
     finally:
         if old_offline is not None:
             os.environ["HF_HUB_OFFLINE"] = old_offline
+        else:
+            os.environ.pop("HF_HUB_OFFLINE", None)
         if not old_endpoint:
             os.environ.pop("HF_ENDPOINT", None)
 
