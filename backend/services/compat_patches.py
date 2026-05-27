@@ -17,11 +17,8 @@ _applied: bool = False
 
 
 def _patch_torchaudio_backends():
-    """torchaudio >=2.5 移除了 list_audio_backends()，pyannote.audio 3.x 导入时调用它。
-
-    pyannote.audio 3.x 的 core/io.py 在模块级别执行
-    torchaudio.list_audio_backends() 检查可用音频后端。
-    新版 torchaudio 已删除该函数（后端始终可用），此补丁恢复它。
+    """torchaudio >=2.5 移除了 list_audio_backends() 和 AudioMetaData，
+    pyannote.audio 3.x 在导入时调用它们。此补丁恢复这两个 API。
     必须在 pyannote.audio 导入之前调用。
     """
     try:
@@ -31,6 +28,17 @@ def _patch_torchaudio_backends():
     if not hasattr(torchaudio, 'list_audio_backends'):
         torchaudio.list_audio_backends = lambda: ['ffmpeg', 'sox', 'soundfile']
         print("[compat] Patched torchaudio.list_audio_backends")
+    # AudioMetaData → AudioMetadata (torchaudio 2.5+ 改名)
+    if not hasattr(torchaudio, 'AudioMetaData'):
+        if hasattr(torchaudio, 'AudioMetadata'):
+            torchaudio.AudioMetaData = torchaudio.AudioMetadata
+            print("[compat] Aliased torchaudio.AudioMetaData → AudioMetadata")
+        else:
+            from collections import namedtuple
+            _AMD = namedtuple('AudioMetaData',
+                ['sample_rate', 'num_frames', 'num_channels', 'bits_per_sample', 'encoding'])
+            torchaudio.AudioMetaData = _AMD
+            print("[compat] Created placeholder torchaudio.AudioMetaData")
 
 
 def _patch_transcription_options():
