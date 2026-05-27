@@ -124,20 +124,23 @@ def _process_sync(project_id: str, file_path: str, file_hash: str = ""):
                 # ── Stage 4: 词级时间戳对齐 ──
                 _update_progress(project_id, "时间轴对齐...", 40)
                 lang = transcribe_result.get("language", "zh")
-                # 对齐模型绕过 hf-mirror（镜像可能未缓存小语种对齐模型）
-                _ep = os.environ.pop("HF_ENDPOINT", None)
+                # 确保使用 hf-mirror 下载对齐模型（国内必须）
+                _ep_saved = os.environ.get("HF_ENDPOINT", "")
+                if not _ep_saved:
+                    os.environ["HF_ENDPOINT"] = "https://hf-mirror.com"
                 try:
                     model_a, metadata = whisperx.load_align_model(language_code=lang, device=device)
                     aligned = whisperx.align(
                         transcribe_result["segments"], model_a, metadata, audio_str, device
                     )
+                    print("[asr] Word-level alignment complete")
                 except Exception as e:
-                    # 对齐模型下载失败（国内连不上 HuggingFace）→ 降级为段落级时间戳
-                    print(f"[asr] Alignment failed, falling back to segment timestamps: {e}")
+                    # 对齐模型下载失败（镜像缓存可能缺失）→ 降级走切分模式
+                    print(f"[asr] Alignment failed, will split by speaker turns: {e}")
                     aligned = transcribe_result
                 finally:
-                    if _ep:
-                        os.environ["HF_ENDPOINT"] = _ep
+                    if not _ep_saved:
+                        os.environ.pop("HF_ENDPOINT", None)
 
                 # ── Stage 5: pyannote 说话人分离 ──
                 _update_progress(project_id, "说话人分离...", 60)
@@ -187,9 +190,9 @@ def _process_sync(project_id: str, file_path: str, file_hash: str = ""):
                             aligned = whisperx.assign_word_speakers(diarize_segments, aligned)
                             print("[asr] Word-level speaker assignment complete")
                         else:
-                            # 对齐模型不可用（国内连不上 HuggingFace），段落级说话人分配
-                            aligned = _assign_segment_speakers(diarize_segments, aligned)
-                            print(f"[asr] Segment-level speaker assignment ({len(diarize_speakers)} speakers)")
+                            # 对齐模型不可用 → 用 pyannote 边界切分 whisperx 段落
+                            aligned = _split_segments_by_diarization(diarize_segments, aligned)
+                            print(f"[asr] Split by {len(diarize_segments)} diarization turns ({len(diarize_speakers)} speakers)")
                     except Exception as e:
                         print(f"[asr] Diarization failed (continuing without): {e}")
                 else:
@@ -286,31 +289,74 @@ def _process_sync(project_id: str, file_path: str, file_hash: str = ""):
 
 
 # ═══════════════════════════════════════════════════════
-# 段落级说话人分配（对齐模型不可用时的降级方案）
+# 用 pyannote 说话人边界切分 whisperx 段落（对齐模型不可用时）
 # ═══════════════════════════════════════════════════════
 
 
-def _assign_segment_speakers(diarize_segments, result: dict) -> dict:
-    """当词级对齐模型不可用时，用时间戳重叠给 ASR 段落分配说话人。
+def _split_segments_by_diarization(diarize_segments, result: dict) -> dict:
+    """用 pyannote 说话人边界切分 whisperx 段落。
 
-    遍历每个 ASR segment，找到与之时间重叠最大的 diarization segment，
-    将其说话人标签赋给该 paragraph。
+    对齐模型不可用时：pyannote 返回精确的说话人切换时间点（~1-2s 粒度），
+    用这些边界来切分 whisperx 的大段落（~5-15s），产生 utterance 级句子。
+
+    文字按每个子段占原段的时间比例截取。
     """
     segments = result.get("segments", [])
+    new_segments: list[dict] = []
+
     for seg in segments:
         seg_start = float(seg.get("start", 0))
         seg_end = float(seg.get("end", 0))
-        best_speaker = "SPEAKER_00"
-        best_overlap = 0.0
+        seg_text = (seg.get("text") or "").strip()
+        seg_dur = seg_end - seg_start
+
+        if seg_dur <= 0 or not seg_text:
+            continue
+
+        # 找到所有与此段落重叠的 pyannote 说话人段
+        overlaps: list[dict] = []
         for _, row in diarize_segments.iterrows():
             d_start = float(row.get("start", 0))
             d_end = float(row.get("end", 0))
-            overlap = max(0.0, min(seg_end, d_end) - max(seg_start, d_start))
-            if overlap > best_overlap:
-                best_overlap = overlap
-                best_speaker = str(row.get("speaker", "SPEAKER_00"))
-        seg["speaker"] = best_speaker
-    result["segments"] = segments
+            ov_start = max(seg_start, d_start)
+            ov_end = min(seg_end, d_end)
+            if ov_end > ov_start:
+                overlaps.append({
+                    "speaker": str(row.get("speaker", "SPEAKER_00")),
+                    "start": ov_start,
+                    "end": ov_end,
+                })
+
+        if not overlaps:
+            # 无重叠（理论上不会发生），保留原段
+            seg["speaker"] = "SPEAKER_00"
+            new_segments.append(seg)
+            continue
+
+        overlaps.sort(key=lambda x: x["start"])
+
+        # 按时间比例分配文字给每个子段
+        total_overlap_dur = sum(o["end"] - o["start"] for o in overlaps)
+        char_pos = 0
+        for ov in overlaps:
+            ov_dur = ov["end"] - ov["start"]
+            ratio = ov_dur / max(total_overlap_dur, 0.01)
+            char_count = max(2, round(len(seg_text) * ratio))
+            # 最后一个子段吃掉剩余文字
+            if ov is overlaps[-1]:
+                char_count = len(seg_text) - char_pos
+            sub_text = seg_text[char_pos:char_pos + char_count].strip()
+            char_pos += char_count
+
+            if sub_text:
+                new_segments.append({
+                    "speaker": ov["speaker"],
+                    "text": sub_text,
+                    "start": ov["start"],
+                    "end": ov["end"],
+                })
+
+    result["segments"] = new_segments
     return result
 
 
