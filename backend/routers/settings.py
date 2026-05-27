@@ -555,6 +555,19 @@ def _download_whisperx_model(size: str):
         print(f"[settings] Downloading faster-whisper-{size} (device={device}, mirror={os.environ.get('HF_ENDPOINT')})...")
         whisperx.load_model(size, device=device, compute_type=compute_type)
         print(f"[settings] WhisperX {size} model ready")
+
+        # 预下载中文对齐模型（绕过 hf-mirror，镜像可能未缓存）
+        _save_ep = os.environ.pop("HF_ENDPOINT", None)
+        try:
+            print("[settings] Pre-downloading alignment model for zh...")
+            whisperx.load_align_model(language_code="zh", device=device)
+            print("[settings] Alignment model for zh ready")
+        except Exception as e:
+            print(f"[settings] Alignment model pre-download failed (non-fatal): {e}")
+        finally:
+            if _save_ep:
+                os.environ["HF_ENDPOINT"] = _save_ep
+
         _download_state.update(
             status="done", message=f"WhisperX {size} 就绪，可以上传音频了", done=2, total=2
         )

@@ -152,7 +152,13 @@ def _process_sync(project_id: str, file_path: str, file_hash: str = ""):
                 # ── Stage 4: 词级时间戳对齐 ──
                 _update_progress(project_id, "时间轴对齐...", 40)
                 lang = transcribe_result.get("language", "zh")
-                model_a, metadata = whisperx.load_align_model(language_code=lang, device=device)
+                # 对齐模型绕过 hf-mirror（镜像可能未缓存小语种对齐模型）
+                _ep = os.environ.pop("HF_ENDPOINT", None)
+                try:
+                    model_a, metadata = whisperx.load_align_model(language_code=lang, device=device)
+                finally:
+                    if _ep:
+                        os.environ["HF_ENDPOINT"] = _ep
                 aligned = whisperx.align(
                     transcribe_result["segments"], model_a, metadata, audio_str, device
                 )
