@@ -168,8 +168,19 @@ def _process_sync(project_id: str, file_path: str, file_hash: str = ""):
                         print(f"[asr] Diarization: {len(diarize_segments)} segments, "
                               f"{len(diarize_speakers)} speakers: "
                               f"{ {k: f'{v:.1f}s' for k, v in speaker_time.items()} }")
-                        aligned = whisperx.assign_word_speakers(diarize_segments, aligned)
-                        print("[asr] Word-level speaker assignment complete")
+                        # 检测对齐是否成功：有词级数据才能做词级说话人分配
+                        _segs = aligned.get("segments", [])
+                        _has_words = any(
+                            w for s in _segs
+                            for w in s.get("words", [])
+                        )
+                        if _has_words:
+                            aligned = whisperx.assign_word_speakers(diarize_segments, aligned)
+                            print("[asr] Word-level speaker assignment complete")
+                        else:
+                            # 对齐模型不可用（国内连不上 HuggingFace），段落级说话人分配
+                            aligned = _assign_segment_speakers(diarize_segments, aligned)
+                            print(f"[asr] Segment-level speaker assignment ({len(diarize_speakers)} speakers)")
                     except Exception as e:
                         print(f"[asr] Diarization failed (continuing without): {e}")
                 else:
@@ -263,6 +274,35 @@ def _process_sync(project_id: str, file_path: str, file_hash: str = ""):
                 await session.commit()
 
     asyncio.run(_update())
+
+
+# ═══════════════════════════════════════════════════════
+# 段落级说话人分配（对齐模型不可用时的降级方案）
+# ═══════════════════════════════════════════════════════
+
+
+def _assign_segment_speakers(diarize_segments, result: dict) -> dict:
+    """当词级对齐模型不可用时，用时间戳重叠给 ASR 段落分配说话人。
+
+    遍历每个 ASR segment，找到与之时间重叠最大的 diarization segment，
+    将其说话人标签赋给该 paragraph。
+    """
+    segments = result.get("segments", [])
+    for seg in segments:
+        seg_start = float(seg.get("start", 0))
+        seg_end = float(seg.get("end", 0))
+        best_speaker = "SPEAKER_00"
+        best_overlap = 0.0
+        for _, row in diarize_segments.iterrows():
+            d_start = float(row.get("start", 0))
+            d_end = float(row.get("end", 0))
+            overlap = max(0.0, min(seg_end, d_end) - max(seg_start, d_start))
+            if overlap > best_overlap:
+                best_overlap = overlap
+                best_speaker = str(row.get("speaker", "SPEAKER_00"))
+        seg["speaker"] = best_speaker
+    result["segments"] = segments
+    return result
 
 
 # ═══════════════════════════════════════════════════════
