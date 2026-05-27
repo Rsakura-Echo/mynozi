@@ -204,7 +204,7 @@ async def get_model_status():
             "engine": "funasr",
             **status,
         })
-    current = _load().get("whisper_model_size", settings.whisper_model)
+    current = _load().get("whisper_model_size", "medium")
     return {"models": models, "current_model": current}
 
 
