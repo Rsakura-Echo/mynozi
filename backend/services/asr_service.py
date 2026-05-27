@@ -127,12 +127,16 @@ def _process_sync(project_id: str, file_path: str, file_hash: str = ""):
                 _ep = os.environ.pop("HF_ENDPOINT", None)
                 try:
                     model_a, metadata = whisperx.load_align_model(language_code=lang, device=device)
+                    aligned = whisperx.align(
+                        transcribe_result["segments"], model_a, metadata, audio_str, device
+                    )
+                except Exception as e:
+                    # 对齐模型下载失败（国内连不上 HuggingFace）→ 降级为段落级时间戳
+                    print(f"[asr] Alignment failed, falling back to segment timestamps: {e}")
+                    aligned = transcribe_result
                 finally:
                     if _ep:
                         os.environ["HF_ENDPOINT"] = _ep
-                aligned = whisperx.align(
-                    transcribe_result["segments"], model_a, metadata, audio_str, device
-                )
 
                 # ── Stage 5: pyannote 说话人分离 ──
                 _update_progress(project_id, "说话人分离...", 60)
