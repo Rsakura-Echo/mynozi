@@ -65,6 +65,12 @@ def _process_sync(project_id: str, file_path: str, file_hash: str = ""):
 
                 # ── Stage 2: 加载模型 ──
                 _update_progress(project_id, "加载模型...", 10)
+
+                # 应用兼容补丁（必须在 import whisperx 之前，torchaudio/pyannote 导入时需要）
+                from services.compat_patches import apply_all as _apply_compat
+                _apply_compat()
+                print("[asr] Applied whisperx 3.2.0 compatibility patches")
+
                 try:
                     import whisperx
                     import torch
@@ -90,11 +96,6 @@ def _process_sync(project_id: str, file_path: str, file_hash: str = ""):
 
                 compute_type = "float16" if device == "cuda" else "int8"
                 print(f"[asr] Loading WhisperX model={_model_size} device={device} compute_type={compute_type}")
-
-                # 应用 whisperx 3.2.0 兼容补丁（集中管理，与 settings.py 共享）
-                from services.compat_patches import apply_all as _apply_compat
-                _apply_compat()
-                print("[asr] Applied whisperx 3.2.0 compatibility patches")
 
                 old_offline = os.environ.get("HF_HUB_OFFLINE", None)
                 old_endpoint = os.environ.get("HF_ENDPOINT", "")

@@ -24,9 +24,18 @@ def _compute_hash(content: bytes) -> str:
 
 
 def _get_asr_model() -> str:
-    """固定使用 WhisperX 引擎（不再回退 FunASR）。"""
-    import whisperx  # noqa: F401
-    print(f"[upload] ASR engine: whisperx (whisperx {getattr(whisperx, '__version__', '?')})")
+    """固定使用 WhisperX 引擎。应用兼容补丁后再导入，防止缺 API 崩溃。"""
+    from services.compat_patches import apply_all
+    apply_all()
+    try:
+        import whisperx  # noqa: F401
+        print(f"[upload] ASR engine: whisperx (whisperx {getattr(whisperx, '__version__', '?')})")
+    except Exception as e:
+        print(f"[upload] Failed to import whisperx: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail={"message": f"WhisperX 库加载失败: {e}", "code": "whisperx_import_error"},
+        )
     return "whisperx"
 
 
