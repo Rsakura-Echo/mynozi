@@ -159,7 +159,7 @@ def _process_sync(project_id: str, file_path: str, file_hash: str = ""):
                         # 使用 3.1 模型（比默认 community-1 效果好很多）
                         diarize_model = whisperx.DiarizationPipeline(
                             model_name="pyannote/speaker-diarization-3.1",
-                            use_auth_token=hf_token,
+                            token=hf_token,
                             device=device,
                         )
                         # 聚类参数：threshold 越低越容易分出独立说话人

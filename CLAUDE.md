@@ -42,7 +42,7 @@ cd frontend && npm run dev        # Vite dev server, port 5173, proxy /api → 8
 |---|------|
 | 后端 | FastAPI (Python), SQLAlchemy 2.0 async + aiosqlite, pydantic v2 |
 | 前端 | React 19, TypeScript 6, Vite 8, react-router-dom v7, wavesurfer.js |
-| ASR | WhisperX (faster-whisper + pyannote 说话人分离) |
+| ASR | WhisperX 3.8.5 (faster-whisper 1.2.1 + pyannote 4.0.4 说话人分离, Python 3.12) |
 | 辅助识别 | FunASR (sentences.py 切分/框选识别，仅在此处使用) |
 | TTS | RunningHub 云端 API (IndexTTS2 工作流) |
 | 音频处理 | ffmpeg (提取/切割/合并) |
@@ -67,7 +67,7 @@ backend/
 └── services/         # 业务逻辑层（重计算，在线程池/后台任务中运行）
     ├── asr_service.py     # WhisperX: 转写 → 对齐 → 说话人分离 → 写入 DB
     ├── audio_service.py   # ffmpeg: 视频提取音频/按时间戳切割/合并
-    ├── compat_patches.py  # whisperx 3.2.0 兼容补丁（集中管理，幂等）
+    ├── compat_patches.py  # whisperx 3.8.5 兼容补丁（集中管理，幂等）
     └── tts_service.py     # RunningHub API: 上传参考音频 → 构建工作流 → 轮询 → 下载
 ```
 
@@ -78,7 +78,7 @@ backend/
 3. ASR 处理（`models.py:Project.status` = `processing`）：
    - 文件 SHA256 哈希 → 检查缓存（相同音频直接复用结果）
    - 视频则先 `ffmpeg` 提取音频
-   - 应用兼容补丁 `compat_patches.apply_all()`（whisperx 3.2.0 + Python 3.14）
+   - 应用兼容补丁 `compat_patches.apply_all()`（whisperx 3.8.5 + Python 3.12）
    - WhisperX 加载模型（大小可配置，默认 medium）
    - 转写 + 词级时间戳对齐 + 可选 pyannote 说话人分离（需 `hf_token`）
    - 按词级说话人变化切分句子 → 合并相邻同说话人短句 → 切分过长句子
@@ -101,7 +101,7 @@ backend/
 - **兼容补丁**集中在 `services/compat_patches.py`，`apply_all()` 幂等可多次调用，settings.py 和 asr_service.py 统一入口
 - **情感参数**为 8 维向量（开心/愤怒/悲伤/恐惧/厌恶/低落/惊讶/中性），0-100，通过 RunningHub IndexTTS2 的 EmotionVector 节点注入
 - **ASR 模型大小**可在前端设置页选择（tiny ~ large-v3），通过 `data/settings.json` 持久化，支持 HuggingFace 缓存检测
-- **pyannote 聚类参数**可通过 `.env` 配置：`pyannote_clustering_threshold`（默认 0.50）、`pyannote_min_cluster_size`（默认 5）
+- **pyannote 聚类参数**可通过 `.env` 配置：`pyannote_clustering_threshold`（默认 0.35）、`pyannote_min_cluster_size`（默认 5）
 - **数据库切换**：改 `config.py` 的 `database_url` 即可切 PostgreSQL（SQLAlchemy + aiosqlite → asyncpg）
 - **前后端通信**：开发时 Vite proxy `/api` → `127.0.0.1:8000`；生产时 FastAPI 直接 serve 前端 dist + SPA fallback
 - **文件缓存**：相同音频（SHA256 匹配）再次上传直接复用 ASR 结果，跳过模型推理

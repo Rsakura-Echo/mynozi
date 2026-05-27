@@ -1,8 +1,8 @@
-"""whisperx 3.2.0 + Python 3.14 兼容补丁层。
+"""whisperx 3.8.5 + Python 3.12 兼容补丁层。
 
-Python 3.14 强制使用新版 torch/torchaudio/huggingface-hub，
-但 whisperx 3.2.0（唯一提供 Python 3.14 wheel 的版本）依赖这些包的旧 API。
-本模块提供完整兼容层，所有补丁自然幂等（检测缺失才打），可安全多次调用。
+新版 torch/torchaudio/huggingface-hub 移除或变更了部分旧 API，
+whisperx 3.8.5 / pyannote 4.0.4 / faster-whisper 1.2.1 可能依赖这些 API。
+本模块提供防御式兼容层，所有补丁自然幂等（检测缺失才打），可安全多次调用。
 
 用法:
     from services.compat_patches import apply_all
