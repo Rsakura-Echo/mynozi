@@ -266,9 +266,20 @@ def _install_whisperx(python_exe: str):
                 [python_exe, "-m", "pip", "install", "torch", "torchaudio",
                  "--index-url", "https://download.pytorch.org/whl/cpu"], timeout=900)
 
-    # 2. huggingface-hub 版本锁定（必须在其他依赖之前，upgrade=True 确保降级/升级到兼容版本）
-    # whisperx 3.2.0 需要 is_offline_mode（hub>=0.20,<1.0），1.0+ 移除了该函数
-    _pip(["huggingface-hub>=0.20,<1.0"], upgrade=True)
+    # 2. huggingface-hub 版本锁定（必须在其他依赖之前）
+    # whisperx 3.2.0 需要 is_offline_mode，只在 hub>=0.20,<1.0 中存在
+    # 直接 pip install --upgrade 从 1.x 降级到 0.x 时可能不生效，先卸载再安装
+    print("[settings] Ensuring compatible huggingface-hub (>=0.20, <1.0)...")
+    subprocess.run(
+        [python_exe, "-m", "pip", "uninstall", "huggingface-hub", "-y"],
+        capture_output=True, timeout=60,
+    )
+    _pip(["huggingface-hub>=0.20,<1.0"], upgrade=False)
+    # 验证 is_offline_mode 可导入
+    import huggingface_hub as _hub
+    assert hasattr(_hub, "is_offline_mode"), \
+        f"huggingface-hub {_hub.__version__} 缺少 is_offline_mode，请手动运行: pip install 'huggingface-hub>=0.20,<1.0'"
+    print(f"[settings] huggingface-hub {_hub.__version__} ready")
 
     # 3. ctranslate2（破掉 whisperx 对 ctranslate2==4.4.0 的死锁）
     try:
