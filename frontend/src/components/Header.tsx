@@ -19,6 +19,7 @@ export default function Header() {
   const [showSysMenu, setShowSysMenu] = useState(false);
   const [apiKey, setApiKey] = useState('');
   const [workflowId, setWorkflowId] = useState('');
+  const [hfToken, setHfToken] = useState('');
   const [saving, setSaving] = useState(false);
   const [dlState, setDlState] = useState<DlState>({ status: 'idle', message: '', current: '', total: 0, done: 0 });
   const dlPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -29,6 +30,7 @@ export default function Header() {
       setSettings(data);
       setApiKey(data.runninghub_api_key || '');
       setWorkflowId(data.runninghub_workflow_id || '');
+      setHfToken(data.hf_token || '');
     }).catch(() => {});
   }, []);
 
@@ -88,9 +90,11 @@ export default function Header() {
       const { data } = await updateSettings({
         runninghub_api_key: apiKey,
         runninghub_workflow_id: workflowId,
+        hf_token: hfToken,
       });
       setSettings(data);
       setApiKey(data.runninghub_api_key || '');
+      setHfToken(data.hf_token || '');
       toast.show('设置已保存');
     } catch {
       toast.show('保存失败');
@@ -367,6 +371,35 @@ export default function Header() {
                   />
                   <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 4 }}>
                     工作流页面 URL 末尾的数字，如 runninghub.cn/workflow/<strong>1980237776367083521</strong>
+                  </div>
+                </label>
+
+                <label style={{ display: 'block', marginBottom: 20 }}>
+                  <div style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-secondary)', marginBottom: 6 }}>
+                    HuggingFace Token
+                  </div>
+                  <input
+                    type="password"
+                    value={hfToken}
+                    onChange={e => setHfToken(e.target.value)}
+                    placeholder="hf_xxx..."
+                    onFocus={(e) => {
+                      e.currentTarget.style.borderColor = 'var(--amber)';
+                      e.currentTarget.style.boxShadow = '0 0 0 2px rgba(232,153,58,0.15)';
+                    }}
+                    onBlur={(e) => {
+                      e.currentTarget.style.borderColor = 'var(--border)';
+                      e.currentTarget.style.boxShadow = 'none';
+                    }}
+                    style={{
+                      width: '100%', background: 'var(--bg-input)', border: '1px solid var(--border)',
+                      borderRadius: 'var(--radius-sm)', padding: '10px 14px',
+                      fontFamily: 'var(--font-mono)', fontSize: 13, color: 'var(--text-primary)',
+                      outline: 'none', boxSizing: 'border-box', transition: 'border-color 0.2s, box-shadow 0.2s',
+                    }}
+                  />
+                  <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 4 }}>
+                    pyannote 说话人分离所需。在 <a href="https://huggingface.co/settings/tokens" target="_blank" style={{ color: 'var(--amber)' }}>huggingface.co/settings/tokens</a> 创建，保存后仅显示后 4 位
                   </div>
                 </label>
 

@@ -20,6 +20,7 @@ export interface AppSettings {
   whisper_model_size: string;
   runninghub_api_key: string;
   runninghub_workflow_id: string;
+  hf_token: string;
   available_models: AsrModel[];
 }
 

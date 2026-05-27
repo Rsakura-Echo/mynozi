@@ -141,7 +141,15 @@ def _process_sync(project_id: str, file_path: str, file_hash: str = ""):
 
                 # ── Stage 5: pyannote 说话人分离 ──
                 _update_progress(project_id, "说话人分离...", 60)
-                hf_token = settings.hf_token
+                # 优先从 settings.json 读取（前端可配置），回退到 .env
+                import json
+                _settings = {}
+                if _settings_file.exists():
+                    try:
+                        _settings = json.loads(_settings_file.read_text("utf-8"))
+                    except Exception:
+                        pass
+                hf_token = _settings.get("hf_token") or settings.hf_token
                 if hf_token:
                     try:
                         print("[asr] Running pyannote speaker diarization...")

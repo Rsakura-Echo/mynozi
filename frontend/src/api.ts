@@ -63,6 +63,7 @@ export const updateSettings = (data: {
   asr_model?: string;
   runninghub_api_key?: string;
   runninghub_workflow_id?: string;
+  hf_token?: string;
 }) => api.put('/settings', data);
 export const getModelStatus = () => api.get('/settings/models');
 

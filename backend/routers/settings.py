@@ -37,6 +37,7 @@ DEFAULT_SETTINGS = {
     "whisper_model_size": "large-v3",
     "runninghub_api_key": "",
     "runninghub_workflow_id": "",
+    "hf_token": "",
     "available_models": [
         {
             "value": "whisperx",
@@ -138,6 +139,10 @@ def _load() -> dict:
                 data["runninghub_api_key"] = DEFAULT_SETTINGS["runninghub_api_key"]
             if "runninghub_workflow_id" not in data:
                 data["runninghub_workflow_id"] = DEFAULT_SETTINGS["runninghub_workflow_id"]
+            if "hf_token" not in data:
+                # 优先读取 .env 中已配置的值
+                from config import settings as app_settings
+                data["hf_token"] = app_settings.hf_token or ""
             return data
         except Exception:
             pass
@@ -152,9 +157,11 @@ def _save(data: dict):
 @router.get("")
 async def get_settings():
     data = _load()
-    # 返回时把 api_key 脱敏（只显示后 4 位）
+    # 返回时脱敏
     key = data.get("runninghub_api_key", "")
     data["runninghub_api_key"] = f"****{key[-4:]}" if len(key) > 4 else key
+    hf = data.get("hf_token", "")
+    data["hf_token"] = f"****{hf[-4:]}" if len(hf) > 4 else hf
     return data
 
 
@@ -163,6 +170,7 @@ class UpdateSettings(BaseModel):
     whisper_model_size: str | None = None
     runninghub_api_key: str | None = None
     runninghub_workflow_id: str | None = None
+    hf_token: str | None = None
 
 
 @router.put("")
@@ -182,10 +190,15 @@ async def update_settings(body: UpdateSettings):
             data["runninghub_api_key"] = body.runninghub_api_key
     if body.runninghub_workflow_id is not None:
         data["runninghub_workflow_id"] = body.runninghub_workflow_id
+    if body.hf_token is not None:
+        if not body.hf_token.startswith("****"):
+            data["hf_token"] = body.hf_token
     _save(data)
     # 返回时脱敏
     key = data.get("runninghub_api_key", "")
     data["runninghub_api_key"] = f"****{key[-4:]}" if len(key) > 4 else key
+    hf = data.get("hf_token", "")
+    data["hf_token"] = f"****{hf[-4:]}" if len(hf) > 4 else hf
     return data
 
 
