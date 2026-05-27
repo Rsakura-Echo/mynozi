@@ -1,5 +1,6 @@
 """ASR 服务 — WhisperX + pyannote：语音识别 + 词级时间戳 + 说话人分离。"""
 
+import os
 from pathlib import Path
 from config import settings
 
@@ -89,6 +90,16 @@ def _process_sync(project_id: str, file_path: str, file_hash: str = ""):
 
                 compute_type = "float16" if device == "cuda" else "int8"
                 print(f"[asr] Loading WhisperX model={_model_size} device={device} compute_type={compute_type}")
+
+                # Monkey-patch faster-whisper 1.0+ TranscriptionOptions 兼容 whisperx 3.2.0
+                import faster_whisper.transcribe as _fwt
+                _orig_init = _fwt.TranscriptionOptions.__init__
+                def _patched_init(self, *args, **kwargs):
+                    kwargs.setdefault("multilingual", True)
+                    kwargs.setdefault("hotwords", None)
+                    return _orig_init(self, *args, **kwargs)
+                _fwt.TranscriptionOptions.__init__ = _patched_init
+                print("[asr] Patched faster-whisper TranscriptionOptions")
 
                 old_offline = os.environ.get("HF_HUB_OFFLINE", None)
                 old_endpoint = os.environ.get("HF_ENDPOINT", "")

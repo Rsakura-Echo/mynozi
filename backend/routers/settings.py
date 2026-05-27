@@ -374,18 +374,16 @@ def _install_whisperx(python_exe: str):
     except ImportError:
         _try_pip(["ctranslate2"])
 
-    # Step 3: 锁定 faster-whisper 0.10.3（whisperx 3.2.0 + Python 3.14 唯一兼容版本）
-    # 1.0.0 的 TranscriptionOptions API 与 whisperx 3.2.0 不兼容
+    # Step 3: 确保 faster-whisper 已安装（不限定版本，monkey-patch 处理兼容性）
+    # whisperx 3.2.0 与 faster-whisper 1.0+ 的 TranscriptionOptions API 不兼容，
+    # 但 0.10.3 没有 Python 3.14 的 wheel，所以用 monkey-patch 而非降级
     try:
         import faster_whisper  # noqa: F401
         from importlib.metadata import version
         fw_ver = version("faster-whisper")
-        if fw_ver >= "1.0":
-            print(f"[settings] faster-whisper {fw_ver} incompatible, downgrading to 0.10.3...")
-            _try_pip(["faster-whisper==0.10.3", "--force-reinstall", "--no-deps"])
-            _try_pip(["ctranslate2"])  # re-install ctranslate2 after force-reinstall
+        print(f"[settings] faster-whisper {fw_ver} (monkey-patch will ensure compat)")
     except ImportError:
-        _try_pip(["faster-whisper==0.10.3"])
+        _try_pip(["faster-whisper"])
 
     # Step 4: 安装 whisperx（带 deps，faster-whisper 已锁定兼容版本）
     try:
@@ -449,22 +447,16 @@ def _download_whisperx_model(size: str):
         total=2, done=1,
     )
 
-    # 确保 faster-whisper 版本兼容（1.0.0 与 whisperx 3.2.0 不兼容）
-    from importlib.metadata import version as _pkg_version
-    try:
-        fw_ver = _pkg_version("faster-whisper")
-        if fw_ver >= "1.0":
-            print(f"[settings] faster-whisper {fw_ver} incompatible, downgrading to 0.10.3...")
-            subprocess.check_call(
-                [sys.executable, "-m", "pip", "install", "faster-whisper==0.10.3", "--force-reinstall", "--no-deps"],
-                timeout=300,
-            )
-            subprocess.check_call(
-                [sys.executable, "-m", "pip", "install", "ctranslate2"],
-                timeout=300,
-            )
-    except Exception:
-        pass  # not installed yet, install step above handles it
+    # Monkey-patch faster-whisper 1.0+ TranscriptionOptions 以兼容 whisperx 3.2.0
+    # Python 3.14 只能用 whisperx 3.2.0，但它不传 multilingual/hotwords
+    import faster_whisper.transcribe as _fwt
+    _orig_init = _fwt.TranscriptionOptions.__init__
+    def _patched_init(self, *args, **kwargs):
+        kwargs.setdefault("multilingual", True)
+        kwargs.setdefault("hotwords", None)
+        return _orig_init(self, *args, **kwargs)
+    _fwt.TranscriptionOptions.__init__ = _patched_init
+    print("[settings] Patched faster-whisper TranscriptionOptions for whisperx 3.2.0 compat")
 
     # 确保 transformers 已安装（whisperx.load_model 内部依赖它）
     try:
