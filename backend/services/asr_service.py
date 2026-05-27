@@ -118,9 +118,28 @@ def _process_sync(project_id: str, file_path: str, file_hash: str = ""):
                         diarize_model = whisperx.DiarizationPipeline(
                             use_auth_token=hf_token, device=device
                         )
+                        # 调优聚类参数：同性别说话人声音相似，默认 threshold=0.7045
+                        # 会过度合并。降低 threshold + min_cluster_size 以区分更多说话人
+                        diarize_model.model.instantiate({
+                            "clustering": {
+                                "threshold": 0.50,          # 默认 0.7045，降低 = 更多聚类 = 更多说话人
+                                "min_cluster_size": 5,      # 默认 12，降低 = 短台词说话人也能被识别
+                            },
+                        })
                         diarize_segments = diarize_model(audio_str)
+                        # 日志：pyannote 识别到的说话人及时间分布
+                        diarize_speakers = set()
+                        speaker_time: dict[str, float] = {}
+                        for _, row in diarize_segments.iterrows():
+                            spk = row.get("speaker", "?")
+                            diarize_speakers.add(spk)
+                            dur = float(row.get("end", 0)) - float(row.get("start", 0))
+                            speaker_time[spk] = speaker_time.get(spk, 0) + dur
+                        print(f"[asr] Diarization: {len(diarize_segments)} segments, "
+                              f"{len(diarize_speakers)} speakers: "
+                              f"{ {k: f'{v:.1f}s' for k, v in speaker_time.items()} }")
                         aligned = whisperx.assign_word_speakers(diarize_segments, aligned)
-                        print("[asr] Diarization complete")
+                        print("[asr] Word-level speaker assignment complete")
                     except Exception as e:
                         print(f"[asr] Diarization failed (continuing without): {e}")
                 else:
@@ -254,11 +273,9 @@ def _build_sentences(segments: list[dict]) -> list[dict]:
 
         for w in words:
             spk = w.get("speaker", "SPEAKER_00")
-            word_text = w.get("word", "")
 
-            # 跳过纯标点词（WhisperX 可能分离出标点）
-            if word_text and spk != cur_spk and cur_words:
-                # 说话人切换 → 提交当前句子
+            if spk != cur_spk and cur_words:
+                # 说话人切换 → 提交当前句子（不依赖 word_text，避免标点词跳过检测）
                 _commit_words(raw, cur_spk, cur_words)
                 cur_words = []
 
