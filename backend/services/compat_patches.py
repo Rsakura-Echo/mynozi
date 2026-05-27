@@ -59,9 +59,10 @@ def _patch_torchaudio():
 def _patch_torch_load():
     """PyTorch >=2.6: torch.load 默认 weights_only 改为 True。
 
-    pyannote.audio 等库用 torch.load 加载模型权重时不传 weights_only，
-    新版 PyTorch 默认 True 导致 omegaconf/listconfig 等类型被拒绝。
-    此补丁恢复 weights_only=False 的旧行为。
+    faster-whisper/pyannote.audio 等库用 torch.load 加载旧格式模型权重，
+    faster-whisper 1.0+ 还显式传入了 weights_only=True。
+    此补丁强制改为 False（覆盖默认值 + 显式传参），允许加载含 omegaconf 的旧权重。
+    仅本地加载已知模型，安全性不构成实际风险。
     """
     try:
         import torch
@@ -70,7 +71,7 @@ def _patch_torch_load():
     _orig_load = torch.load
 
     def _load(*args, **kwargs):
-        kwargs.setdefault('weights_only', False)
+        kwargs['weights_only'] = False  # 强制覆盖，setdefault 对显式传参无效
         return _orig_load(*args, **kwargs)
 
     torch.load = _load
