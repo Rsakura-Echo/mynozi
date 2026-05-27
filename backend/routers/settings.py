@@ -442,6 +442,16 @@ def _download_whisperx_model(size: str):
         total=2, done=1,
     )
 
+    # 确保 transformers 已安装（whisperx.load_model 内部依赖它）
+    try:
+        import transformers  # noqa: F401
+    except ImportError:
+        print("[settings] transformers missing, installing...")
+        subprocess.check_call(
+            [sys.executable, "-m", "pip", "install", "transformers"],
+            timeout=300,
+        )
+
     old_offline = os.environ.pop("HF_HUB_OFFLINE", None)
     old_endpoint = os.environ.get("HF_ENDPOINT", "")
     if not old_endpoint:
