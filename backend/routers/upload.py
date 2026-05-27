@@ -26,7 +26,7 @@ def _compute_hash(content: bytes) -> str:
 def _get_asr_model() -> str:
     """固定使用 WhisperX 引擎（不再回退 FunASR）。"""
     import whisperx  # noqa: F401
-    print(f"[upload] ASR engine: whisperx (whisperx {whisperx.__version__})")
+    print(f"[upload] ASR engine: whisperx (whisperx {getattr(whisperx, '__version__', '?')})")
     return "whisperx"
 
 

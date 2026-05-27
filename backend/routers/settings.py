@@ -377,7 +377,7 @@ def _install_whisperx(python_exe: str):
     # Step 3: 带 deps 安装 whisperx（ctranslate2 已就位，pip 不会再去拉 4.4.0）
     try:
         import whisperx  # noqa: F401
-        print(f"[settings] whisperx {whisperx.__version__} already installed")
+        print(f"[settings] whisperx {getattr(whisperx, '__version__', '?')} already installed")
     except ImportError:
         _try_pip(["whisperx"])
 
@@ -397,7 +397,7 @@ def _install_whisperx(python_exe: str):
             _try_pip([pip_name])
 
     import whisperx
-    print(f"[settings] whisperx {whisperx.__version__} ready")
+    print(f"[settings] whisperx {getattr(whisperx, '__version__', '?')} ready")
 
 
 def _download_whisperx_model(size: str):
