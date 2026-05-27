@@ -120,7 +120,8 @@ def _process_sync(project_id: str, file_path: str, file_hash: str = ""):
                         )
                         # 调优聚类参数：同性别说话人声音相似，默认 threshold=0.7045
                         # 会过度合并。降低 threshold + min_cluster_size 以区分更多说话人
-                        diarize_model.model.instantiate({
+                        # 注意：instantiate() 返回新 pipeline 对象，必须接住！
+                        diarize_model.model = diarize_model.model.instantiate({
                             "clustering": {
                                 "threshold": 0.50,          # 默认 0.7045，降低 = 更多聚类 = 更多说话人
                                 "min_cluster_size": 5,      # 默认 12，降低 = 短台词说话人也能被识别
