@@ -417,24 +417,33 @@ def _download_whisperx_model(size: str):
             if not old_endpoint:
                 os.environ.pop("HF_ENDPOINT", None)
 
+    # 确定模型 repo 和预期大小，用于监控缓存目录增长
+    _model_info = ASR_MODELS.get(size, {})
+    _model_repo = _model_info.get("repo", f"Systran/faster-whisper-{size}")
+    _model_size_gb = _model_info.get("size_gb", 1.5)
+    _cache_dir = HF_CACHE / ("models--" + _model_repo.replace("/", "--"))
+
     _thread = threading.Thread(target=_run_download, daemon=True)
     _thread.start()
 
-    # 心跳：每 5 秒更新用时，前端轮询时可确认未卡死
+    # 心跳：每 5 秒更新用时 + 缓存目录大小，前端轮询时可确认下载进度
     _start = time.time()
     while _thread.is_alive():
         _thread.join(5)
         _elapsed = int(time.time() - _start)
         _min, _sec = divmod(_elapsed, 60)
-        if _elapsed < 10:
-            # 前 10 秒可能是连接建立中，给具体提示
-            _download_state.update(
-                message=f"正在从 HuggingFace 镜像下载 {size} 模型（首次约 1.5~3 GB）... 已用时 {_min} 分 {_sec} 秒"
+        # 扫描缓存目录已下载大小
+        _dl_mb = 0
+        if _cache_dir.exists():
+            _dl_mb = round(sum(
+                f.stat().st_size for f in _cache_dir.rglob("*") if f.is_file()
+            ) / (1024 ** 2), 1)
+        _download_state.update(
+            message=(
+                f"正在下载 {size} 模型（~{_model_size_gb} GB）... "
+                f"已下载 {_dl_mb} MB · 已用时 {_min} 分 {_sec} 秒"
             )
-        else:
-            _download_state.update(
-                message=f"正在下载 {size} 模型（首次约 1.5~3 GB）... 已用时 {_min} 分 {_sec} 秒，请耐心等待"
-            )
+        )
 
     if _dl_ok:
         _download_state.update(
