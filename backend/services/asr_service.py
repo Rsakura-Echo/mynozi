@@ -156,19 +156,27 @@ def _process_sync(project_id: str, file_path: str, file_hash: str = ""):
                 if hf_token:
                     try:
                         print("[asr] Running pyannote speaker diarization...")
+                        # 使用 3.1 模型（比默认 community-1 效果好很多）
                         diarize_model = whisperx.DiarizationPipeline(
-                            use_auth_token=hf_token, device=device
+                            model_name="pyannote/speaker-diarization-3.1",
+                            use_auth_token=hf_token,
+                            device=device,
                         )
-                        # 调优聚类参数：同性别说话人声音相似，默认 threshold=0.7045
-                        # 会过度合并。降低 threshold + min_cluster_size 以区分更多说话人
-                        # 注意：instantiate() 返回新 pipeline 对象，必须接住！
+                        # 聚类参数：threshold 越低越容易分出独立说话人
+                        # 官方默认 0.7045 → 我们设 0.35 适应多人对话场景
+                        # 注意：instantiate() 返回新 pipeline 对象，必须赋值回去！
                         diarize_model.model = diarize_model.model.instantiate({
                             "clustering": {
-                                "threshold": settings.pyannote_clustering_threshold,
+                                "method": "centroid",
                                 "min_cluster_size": settings.pyannote_min_cluster_size,
+                                "threshold": settings.pyannote_clustering_threshold,
                             },
                         })
-                        diarize_segments = diarize_model(audio_str)
+                        diarize_segments = diarize_model(
+                            audio_str,
+                            min_speakers=2,
+                            max_speakers=8,
+                        )
                         # 日志：pyannote 识别到的说话人及时间分布
                         diarize_speakers = set()
                         speaker_time: dict[str, float] = {}
