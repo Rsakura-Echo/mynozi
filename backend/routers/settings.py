@@ -367,39 +367,35 @@ def _install_whisperx(python_exe: str):
                 timeout=900,
             )
 
-    # Step 2: 先尝试一键安装 whisperx（让 pip 自动解析所有依赖）
+    # Step 2: 先装 ctranslate2（不限定版本），破掉 whisperx 对 ctranslate2==4.4.0 的锁定
     try:
+        import ctranslate2  # noqa: F401
+        print(f"[settings] ctranslate2 already installed")
+    except ImportError:
+        _try_pip(["ctranslate2"])
+
+    # Step 3: 带 deps 安装 whisperx（ctranslate2 已就位，pip 不会再去拉 4.4.0）
+    try:
+        import whisperx  # noqa: F401
+        print(f"[settings] whisperx {whisperx.__version__} already installed")
+    except ImportError:
         _try_pip(["whisperx"])
-        import whisperx
-        print(f"[settings] whisperx {whisperx.__version__} ready (one-shot)")
-        return
-    except RuntimeError as e:
-        err_str = str(e)
-        if "ctranslate2" in err_str and "4.4.0" in err_str:
-            print("[settings] ctranslate2==4.4.0 不可用，切换分步安装...")
-        else:
-            # 不是 ctranslate2 版本问题，可能网络问题，也尝试分步安装
-            print(f"[settings] 一键安装失败，尝试分步安装: {err_str[:200]}")
 
-    # Step 3: 分步安装（绕过 ctranslate2==4.4.0 版本锁定）
-    # 先安装 pyannote.audio（带 deps，会把 transformers/nltk 等都装好）
-    try:
-        import pyannote.audio  # noqa: F401
-        print("[settings] pyannote.audio already installed")
-    except ImportError:
-        _try_pip(["pyannote.audio"])
+    # Step 4: 验证关键依赖链（逐个检查，缺了就装）
+    import importlib
+    _deps = [
+        ("transformers", "transformers"),
+        ("nltk", "nltk"),
+        ("pyannote.audio", "pyannote-audio"),
+        ("faster_whisper", "faster-whisper"),
+    ]
+    for mod_name, pip_name in _deps:
+        try:
+            importlib.import_module(mod_name)
+        except ImportError:
+            print(f"[settings] {mod_name} missing, installing {pip_name}...")
+            _try_pip([pip_name])
 
-    # 再安装 faster-whisper（带 deps，会把 ctranslate2 最新版装好）
-    try:
-        import faster_whisper  # noqa: F401
-        print("[settings] faster-whisper already installed")
-    except ImportError:
-        _try_pip(["faster-whisper"])
-
-    # 最后装 whisperx 本体（--no-deps 跳过已解决好的依赖）
-    _try_pip(["whisperx", "--no-deps"])
-
-    # Step 4: 验证导入
     import whisperx
     print(f"[settings] whisperx {whisperx.__version__} ready")
 
