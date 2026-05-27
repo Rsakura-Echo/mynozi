@@ -321,13 +321,12 @@ def _install_whisperx(python_exe: str):
 
 
 def _download_whisperx_model(size: str):
-    """后台任务：自动安装 whisperx 库 + 下载 faster-whisper 模型。
+    """后台任务：安装 whisperx 库 + 下载模型。
 
-    分两步：
-    1. 检测/安装 whisperx 库（pip install）
-    2. 触发模型下载（whisperx.load_model 首次自动拉取）
+    模型下载在子线程中执行，主线程每秒更新心跳消息，
+    前端轮询时能看到用时变化，确认没有卡死。
     """
-    import subprocess, sys
+    import subprocess, sys, threading, time
 
     # ── Step 1: 安装 whisperx 库 ──
     try:
@@ -337,7 +336,7 @@ def _download_whisperx_model(size: str):
         _download_state.update(
             current="whisperx 库",
             message="正在安装 WhisperX 库（首次约 2-5 分钟，含 torch/torchaudio）...",
-            done=0,
+            done=0, total=2,
         )
         print("[settings] Installing whisperx...")
         try:
@@ -350,69 +349,100 @@ def _download_whisperx_model(size: str):
             )
             return
 
-    # ── Step 2: 下载模型 ──
-    _download_state.update(
-        current=f"faster-whisper-{size}",
-        message=f"正在下载 WhisperX {size} 模型（首次约 3-5 分钟，共约 3GB）...",
-        total=2, done=1,
-    )
-
-    # 应用 whisperx 3.2.0 兼容补丁（集中管理，与 asr_service.py 共享）
+    # 应用兼容补丁（提前打好，下载完就能直接用）
     from services.compat_patches import apply_all as _apply_compat
     _apply_compat()
     print("[settings] Applied whisperx 3.2.0 compatibility patches")
 
-    # 确保 transformers 已安装（whisperx.load_model 内部依赖它）
-    try:
-        import transformers  # noqa: F401
-    except ImportError:
-        print("[settings] transformers missing, installing...")
-        subprocess.check_call(
-            [sys.executable, "-m", "pip", "install", "transformers"],
-            timeout=300,
-        )
+    # ── Step 2: 子线程下载模型 + 主线程心跳 ──
+    _download_state.update(
+        current=f"faster-whisper-{size}",
+        message=f"正在连接 HuggingFace 镜像，准备下载 {size} 模型...",
+        total=2, done=1,
+    )
 
-    old_offline = os.environ.get("HF_HUB_OFFLINE", None)
-    old_endpoint = os.environ.get("HF_ENDPOINT", "")
-    # 显式设为 0，覆盖 start.bat 中 HF_HUB_OFFLINE=1 的离线限制
-    os.environ["HF_HUB_OFFLINE"] = "0"
-    if not old_endpoint:
-        os.environ["HF_ENDPOINT"] = "https://hf-mirror.com"
-    try:
-        import whisperx
-        import torch
-        device = "cpu"
-        compute_type = "int8"
-        if torch.cuda.is_available():
-            device = "cuda"
-            compute_type = "float16"
-        print(f"[settings] Downloading faster-whisper-{size} (device={device}, mirror={os.environ.get('HF_ENDPOINT')})...")
-        whisperx.load_model(size, device=device, compute_type=compute_type)
-        print(f"[settings] WhisperX {size} model ready")
+    # 子线程结果
+    _dl_ok = False
+    _dl_error = ""
 
-        # 预下载中文对齐模型（绕过 hf-mirror，镜像可能未缓存）
-        _save_ep = os.environ.pop("HF_ENDPOINT", None)
+    def _run_download():
+        """在子线程中执行模型下载（阻塞操作）。"""
+        nonlocal _dl_ok, _dl_error
+
+        # 确保 transformers 已安装
         try:
-            print("[settings] Pre-downloading alignment model for zh...")
-            whisperx.load_align_model(language_code="zh", device=device)
-            print("[settings] Alignment model for zh ready")
-        except Exception as e:
-            print(f"[settings] Alignment model pre-download failed (non-fatal): {e}")
-        finally:
-            if _save_ep:
-                os.environ["HF_ENDPOINT"] = _save_ep
+            import transformers  # noqa: F401
+        except ImportError:
+            print("[settings] transformers missing, installing...")
+            subprocess.check_call(
+                [sys.executable, "-m", "pip", "install", "transformers"],
+                timeout=300,
+            )
 
+        old_offline = os.environ.get("HF_HUB_OFFLINE", None)
+        old_endpoint = os.environ.get("HF_ENDPOINT", "")
+        os.environ["HF_HUB_OFFLINE"] = "0"
+        if not old_endpoint:
+            os.environ["HF_ENDPOINT"] = "https://hf-mirror.com"
+        try:
+            import whisperx
+            import torch
+            device = "cpu"
+            compute_type = "int8"
+            if torch.cuda.is_available():
+                device = "cuda"
+                compute_type = "float16"
+            print(f"[settings] Downloading faster-whisper-{size} (device={device}, mirror={os.environ.get('HF_ENDPOINT')})...")
+            whisperx.load_model(size, device=device, compute_type=compute_type)
+            print(f"[settings] WhisperX {size} model ready")
+
+            # 预下载中文对齐模型（绕过 hf-mirror，镜像可能未缓存）
+            _save_ep = os.environ.pop("HF_ENDPOINT", None)
+            try:
+                print("[settings] Pre-downloading alignment model for zh...")
+                whisperx.load_align_model(language_code="zh", device=device)
+                print("[settings] Alignment model for zh ready")
+            except Exception as e:
+                print(f"[settings] Alignment model pre-download failed (non-fatal): {e}")
+            finally:
+                if _save_ep:
+                    os.environ["HF_ENDPOINT"] = _save_ep
+
+            _dl_ok = True
+        except Exception as e:
+            _dl_error = str(e)
+        finally:
+            if old_offline is not None:
+                os.environ["HF_HUB_OFFLINE"] = old_offline
+            else:
+                os.environ.pop("HF_HUB_OFFLINE", None)
+            if not old_endpoint:
+                os.environ.pop("HF_ENDPOINT", None)
+
+    _thread = threading.Thread(target=_run_download, daemon=True)
+    _thread.start()
+
+    # 心跳：每 5 秒更新用时，前端轮询时可确认未卡死
+    _start = time.time()
+    while _thread.is_alive():
+        _thread.join(5)
+        _elapsed = int(time.time() - _start)
+        _min, _sec = divmod(_elapsed, 60)
+        if _elapsed < 10:
+            # 前 10 秒可能是连接建立中，给具体提示
+            _download_state.update(
+                message=f"正在从 HuggingFace 镜像下载 {size} 模型（首次约 1.5~3 GB）... 已用时 {_min} 分 {_sec} 秒"
+            )
+        else:
+            _download_state.update(
+                message=f"正在下载 {size} 模型（首次约 1.5~3 GB）... 已用时 {_min} 分 {_sec} 秒，请耐心等待"
+            )
+
+    if _dl_ok:
         _download_state.update(
             status="done", message=f"WhisperX {size} 就绪，可以上传音频了", done=2, total=2
         )
-    except Exception as e:
+    else:
         _download_state.update(
-            status="error", message=f"模型下载失败: {e}"
+            status="error", message=f"模型下载失败: {_dl_error}"
         )
-    finally:
-        if old_offline is not None:
-            os.environ["HF_HUB_OFFLINE"] = old_offline
-        else:
-            os.environ.pop("HF_HUB_OFFLINE", None)
-        if not old_endpoint:
-            os.environ.pop("HF_ENDPOINT", None)
