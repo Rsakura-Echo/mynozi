@@ -392,7 +392,8 @@ def _install_whisperx(python_exe: str):
     except ImportError:
         _try_pip(["whisperx"])
 
-    # Step 5: 验证关键依赖链
+    # Step 5: 验证关键依赖链 + 锁定兼容版本
+    # huggingface-hub>=1.0 把 use_auth_token 改为 token，pyannote.audio>=4.0 不兼容 whisperx 3.2.0
     import importlib
     _deps = [
         ("transformers", "transformers"),
@@ -405,6 +406,9 @@ def _install_whisperx(python_exe: str):
         except ImportError:
             print(f"[settings] {mod_name} missing, installing {pip_name}...")
             _try_pip([pip_name])
+
+    # 强制锁定 huggingface-hub 和 pyannote-audio 兼容版本（whisperx 3.2.0 需要旧 API）
+    _try_pip(["huggingface-hub<1.0", "pyannote-audio<4.0"])
 
     import whisperx
     print(f"[settings] whisperx {getattr(whisperx, '__version__', '?')} ready")
@@ -457,6 +461,20 @@ def _download_whisperx_model(size: str):
         return _orig_init(self, *args, **kwargs)
     _fwt.TranscriptionOptions.__init__ = _patched_init
     print("[settings] Patched faster-whisper TranscriptionOptions for whisperx 3.2.0 compat")
+
+    # Monkey-patch pyannote.audio.Inference 兼容 huggingface-hub >=1.0
+    # huggingface-hub>=1.0 把 use_auth_token 改为 token，whisperx 3.2.0 仍传旧参数名
+    try:
+        from pyannote.audio import Inference
+        _orig_inf_init = Inference.__init__
+        def _patched_inf_init(self, *args, **kwargs):
+            if 'use_auth_token' in kwargs:
+                kwargs['token'] = kwargs.pop('use_auth_token')
+            return _orig_inf_init(self, *args, **kwargs)
+        Inference.__init__ = _patched_inf_init
+        print("[settings] Patched pyannote.audio.Inference for huggingface-hub compat")
+    except ImportError:
+        pass  # pyannote not yet installed, will be handled by install step
 
     # 确保 transformers 已安装（whisperx.load_model 内部依赖它）
     try:

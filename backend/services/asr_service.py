@@ -101,6 +101,19 @@ def _process_sync(project_id: str, file_path: str, file_hash: str = ""):
                 _fwt.TranscriptionOptions.__init__ = _patched_init
                 print("[asr] Patched faster-whisper TranscriptionOptions")
 
+                # Monkey-patch pyannote.audio.Inference 兼容 huggingface-hub >=1.0
+                try:
+                    from pyannote.audio import Inference
+                    _orig_inf_init = Inference.__init__
+                    def _patched_inf_init(self, *args, **kwargs):
+                        if 'use_auth_token' in kwargs:
+                            kwargs['token'] = kwargs.pop('use_auth_token')
+                        return _orig_inf_init(self, *args, **kwargs)
+                    Inference.__init__ = _patched_inf_init
+                    print("[asr] Patched pyannote.audio.Inference for huggingface-hub compat")
+                except ImportError:
+                    pass
+
                 old_offline = os.environ.get("HF_HUB_OFFLINE", None)
                 old_endpoint = os.environ.get("HF_ENDPOINT", "")
                 os.environ["HF_HUB_OFFLINE"] = "0"
