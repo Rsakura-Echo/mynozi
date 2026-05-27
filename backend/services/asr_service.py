@@ -101,16 +101,27 @@ def _process_sync(project_id: str, file_path: str, file_hash: str = ""):
                 _fwt.TranscriptionOptions.__init__ = _patched_init
                 print("[asr] Patched faster-whisper TranscriptionOptions")
 
-                # Monkey-patch pyannote.audio.Inference 兼容 huggingface-hub >=1.0
+                # Monkey-patch pyannote.audio.Inference 自适应不同版本的参数名
+                # whisperx 3.2.0 传 use_auth_token；pyannote 3.1- 接受 use_auth_token；
+                # pyannote 3.2+ 改名 token；都不接受时通过 HF_TOKEN 环境变量传递
                 try:
                     from pyannote.audio import Inference
+                    import inspect as _inspect
                     _orig_inf_init = Inference.__init__
+                    _inf_params = set(_inspect.signature(_orig_inf_init).parameters.keys())
+                    print(f"[asr] pyannote.audio.Inference params: {sorted(_inf_params)}")
                     def _patched_inf_init(self, *args, **kwargs):
                         if 'use_auth_token' in kwargs:
-                            kwargs['token'] = kwargs.pop('use_auth_token')
+                            token_val = kwargs.pop('use_auth_token')
+                            if 'token' in _inf_params:
+                                kwargs['token'] = token_val
+                            elif 'use_auth_token' in _inf_params:
+                                kwargs['use_auth_token'] = token_val
+                            elif token_val:
+                                os.environ.setdefault('HF_TOKEN', token_val)
                         return _orig_inf_init(self, *args, **kwargs)
                     Inference.__init__ = _patched_inf_init
-                    print("[asr] Patched pyannote.audio.Inference for huggingface-hub compat")
+                    print("[asr] Patched pyannote.audio.Inference (adaptive)")
                 except ImportError:
                     pass
 

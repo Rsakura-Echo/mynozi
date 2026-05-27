@@ -408,10 +408,44 @@ def _install_whisperx(python_exe: str):
             _try_pip([pip_name])
 
     # 强制锁定 huggingface-hub 和 pyannote-audio 兼容版本（whisperx 3.2.0 需要旧 API）
-    _try_pip(["huggingface-hub<1.0", "pyannote-audio<4.0"])
+    _ensure_compat_versions(python_exe)
 
     import whisperx
     print(f"[settings] whisperx {getattr(whisperx, '__version__', '?')} ready")
+
+
+def _ensure_compat_versions(python_exe: str):
+    """强制安装 pyannote-audio + huggingface-hub 兼容版本。
+
+    whisperx 3.2.0 使用 use_auth_token 参数，whisperx 的 pyproject.toml 未锁定上限，
+    导致 pip 可能安装 pyannote-audio>=4.0 和 huggingface-hub>=1.0，两者 API 均不兼容。
+    """
+    import subprocess
+
+    sources = [
+        ("默认源", []),
+        ("清华镜像", ["-i", "https://pypi.tuna.tsinghua.edu.cn/simple",
+                      "--trusted-host", "pypi.tuna.tsinghua.edu.cn"]),
+        ("阿里云镜像", ["-i", "https://mirrors.aliyun.com/pypi/simple/",
+                       "--trusted-host", "mirrors.aliyun.com"]),
+    ]
+
+    for name, extra_args in sources:
+        cmd = [python_exe, "-m", "pip", "install"]
+        cmd.extend(extra_args)
+        cmd.extend(["pyannote-audio>=3.1,<4.0", "huggingface-hub>=0.20,<1.0"])
+        print(f"[settings] Ensuring compat versions via {name}...")
+        try:
+            r = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+            if r.returncode == 0:
+                print(f"[settings] Compat versions OK via {name}")
+                return
+            print(f"[settings] pip {name} returned {r.returncode}: {r.stderr[-300:]}")
+        except Exception as e:
+            print(f"[settings] pip {name} failed: {e}")
+            continue
+
+    print("[settings] WARNING: Could not pin compat versions, relying on monkey-patch")
 
 
 def _download_whisperx_model(size: str):
@@ -444,7 +478,15 @@ def _download_whisperx_model(size: str):
             )
             return
 
-    # ── Step 2: 下载模型 ──
+    # ── Step 2: 确保依赖版本兼容 ──
+    _download_state.update(
+        current="依赖兼容",
+        message="正在检查 pyannote-audio / huggingface-hub 版本兼容性...",
+        total=2, done=1,
+    )
+    _ensure_compat_versions(sys.executable)
+
+    # ── Step 3: 下载模型 ──
     _download_state.update(
         current=f"faster-whisper-{size}",
         message=f"正在下载 WhisperX {size} 模型（首次约 3-5 分钟，共约 3GB）...",
@@ -462,17 +504,27 @@ def _download_whisperx_model(size: str):
     _fwt.TranscriptionOptions.__init__ = _patched_init
     print("[settings] Patched faster-whisper TranscriptionOptions for whisperx 3.2.0 compat")
 
-    # Monkey-patch pyannote.audio.Inference 兼容 huggingface-hub >=1.0
-    # huggingface-hub>=1.0 把 use_auth_token 改为 token，whisperx 3.2.0 仍传旧参数名
+    # Monkey-patch pyannote.audio.Inference 自适应不同版本的参数名
+    # whisperx 3.2.0 传 use_auth_token；pyannote 3.1- 接受 use_auth_token；
+    # pyannote 3.2+ 改名 token；都不接受时通过 HF_TOKEN 环境变量传递
     try:
         from pyannote.audio import Inference
+        import inspect as _inspect
         _orig_inf_init = Inference.__init__
+        _inf_params = set(_inspect.signature(_orig_inf_init).parameters.keys())
+        print(f"[settings] pyannote.audio.Inference params: {sorted(_inf_params)}")
         def _patched_inf_init(self, *args, **kwargs):
             if 'use_auth_token' in kwargs:
-                kwargs['token'] = kwargs.pop('use_auth_token')
+                token_val = kwargs.pop('use_auth_token')
+                if 'token' in _inf_params:
+                    kwargs['token'] = token_val
+                elif 'use_auth_token' in _inf_params:
+                    kwargs['use_auth_token'] = token_val
+                elif token_val:
+                    os.environ.setdefault('HF_TOKEN', token_val)
             return _orig_inf_init(self, *args, **kwargs)
         Inference.__init__ = _patched_inf_init
-        print("[settings] Patched pyannote.audio.Inference for huggingface-hub compat")
+        print("[settings] Patched pyannote.audio.Inference (adaptive)")
     except ImportError:
         pass  # pyannote not yet installed, will be handled by install step
 
