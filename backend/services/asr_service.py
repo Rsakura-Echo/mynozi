@@ -76,11 +76,11 @@ def _process_sync(project_id: str, file_path: str, file_hash: str = ""):
 
                 import json
                 _settings_file = settings.data_dir / "settings.json"
-                _model_size = "medium"
+                _model_size = "large-v3"
                 if _settings_file.exists():
                     try:
                         _data = json.loads(_settings_file.read_text(encoding="utf-8"))
-                        _model_size = _data.get("whisper_model_size", "medium")
+                        _model_size = _data.get("whisper_model_size", "large-v3")
                     except Exception:
                         pass
 

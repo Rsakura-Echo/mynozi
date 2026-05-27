@@ -14,7 +14,7 @@ router = APIRouter(prefix="/api/settings", tags=["settings"])
 SETTINGS_FILE = settings.data_dir / "settings.json"
 
 MODEL_SIZE_LABELS = {
-    "large-v3": "large-v3 (3.0 GB · 最高精度)",
+    "large-v3": "large-v3 (3.0 GB · 最高精度 · 推荐)",
     "large-v2": "large-v2 (3.0 GB · 高精度)",
     "medium":   "medium  (1.5 GB · 推荐平衡)",
     "small":    "small  (0.5 GB · 快速)",
@@ -34,7 +34,7 @@ DEFAULT_SETTINGS = {
     "asr_model": "whisperx",
     "asr_model_label": "WhisperX (OpenAI)",
     "asr_model_desc": "多语言通用模型，词级说话人分离，支持 pyannote 调优。",
-    "whisper_model_size": "medium",
+    "whisper_model_size": "large-v3",
     "runninghub_api_key": "",
     "runninghub_workflow_id": "",
     "available_models": [
@@ -89,7 +89,7 @@ def check_models_cached(asr_model: str) -> tuple[bool, str]:
         (is_cached, error_message)
     """
     data = _load()
-    size = data.get("whisper_model_size", "medium")
+    size = data.get("whisper_model_size", "large-v3")
     info = ASR_MODELS.get(size)
     if not info:
         return False, f"未知 Whisper 模型大小: {size}"
@@ -109,20 +109,18 @@ def check_models_cached(asr_model: str) -> tuple[bool, str]:
 
 @router.get("/models")
 async def get_model_status():
-    """返回 WhisperX 模型缓存状态。"""
-    models = []
-    for name, info in ASR_MODELS.items():
-        status = _check_hf_model_cached(info["repo"])
-        models.append({
-            "name": name,
-            "label": MODEL_SIZE_LABELS.get(name, f"faster-whisper-{name}"),
-            "desc": MODEL_SIZE_DESCS.get(name, ""),
-            "size_gb": info["size_gb"],
-            "engine": "whisperx",
-            **status,
-        })
-    current = _load().get("whisper_model_size", "medium")
-    return {"models": models, "current_model": current}
+    """返回当前 WhisperX 模型缓存状态。"""
+    current = _load().get("whisper_model_size", "large-v3")
+    info = ASR_MODELS.get(current, ASR_MODELS["large-v3"])
+    status = _check_hf_model_cached(info["repo"])
+    return {"model": {
+        "name": current,
+        "label": MODEL_SIZE_LABELS.get(current, f"faster-whisper-{current}"),
+        "desc": MODEL_SIZE_DESCS.get(current, ""),
+        "size_gb": info["size_gb"],
+        "engine": "whisperx",
+        **status,
+    }}
 
 
 def _load() -> dict:
@@ -215,7 +213,7 @@ async def download_model(body: DownloadModelRequest):
         raise HTTPException(400, detail="已有模型正在下载中，请等待完成")
 
     if body.engine == "whisperx":
-        size = body.model_size or "medium"
+        size = body.model_size or "large-v3"
         _download_state.update(
             status="downloading", message="正在准备 WhisperX 环境...",
             current="", total=2, done=0

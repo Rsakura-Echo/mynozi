@@ -9,7 +9,7 @@
       "desc": "多语言通用模型，词级说话人分离，支持 pyannote diarization 调优。"
     }
   ],
-  "whisper_model_size": "medium",
+  "whisper_model_size": "large-v3",
   "runninghub_api_key": "",
   "runninghub_workflow_id": ""
 }

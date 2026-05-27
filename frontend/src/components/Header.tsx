@@ -14,7 +14,7 @@ interface DlState {
 
 export default function Header() {
   const [settings, setSettings] = useState<AppSettings | null>(null);
-  const [models, setModels] = useState<ModelStatus[]>([]);
+  const [model, setModel] = useState<ModelStatus | null>(null);
   const [showDropdown, setShowDropdown] = useState(false);
   const [showSysMenu, setShowSysMenu] = useState(false);
   const [apiKey, setApiKey] = useState('');
@@ -32,12 +32,12 @@ export default function Header() {
     }).catch(() => {});
   }, []);
 
-  const fetchModels = () => {
-    getModelStatus().then(({ data }) => setModels(data.models || [])).catch(() => {});
+  const fetchModel = () => {
+    getModelStatus().then(({ data }) => setModel(data.model || null)).catch(() => {});
   };
 
   useEffect(() => {
-    if (showDropdown) fetchModels();
+    if (showDropdown) fetchModel();
   }, [showDropdown]);
 
   const startDownload = async (engine: string, modelSize?: string) => {
@@ -54,7 +54,7 @@ export default function Header() {
           if (s.status === 'done') {
             if (dlPollRef.current) clearInterval(dlPollRef.current);
             toast.show('模型下载完成！');
-            fetchModels();
+            fetchModel();
           } else if (s.status === 'error') {
             if (dlPollRef.current) clearInterval(dlPollRef.current);
             toast.show('模型下载失败');
@@ -226,71 +226,53 @@ export default function Header() {
                     </div>
                   )}
 
-                  {/* WhisperX models */}
+                  {/* 最佳模型状态 */}
                   <div style={{ fontSize: 10, fontWeight: 500, color: 'var(--text-muted)', marginBottom: 4, marginTop: 8 }}>
-                    WhisperX (HuggingFace)
+                    WhisperX 模型缓存
                   </div>
-                  {models.length === 0 ? (
+                  {!model ? (
                     <div style={{ fontSize: 11, color: 'var(--text-muted)', padding: '4px 0' }}>加载中...</div>
                   ) : (
-                    models.map(m => (
-                      <div key={m.name} style={{
+                    <>
+                      <div style={{
                         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                        padding: '6px 0', fontSize: 12,
+                        padding: '8px 0', fontSize: 12,
                       }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1, minWidth: 0 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                           <span style={{
-                            width: 6, height: 6, borderRadius: '50%',
-                            background: m.downloaded ? 'var(--green)' : (m.size_downloaded_gb > 0 ? 'var(--amber)' : 'var(--text-muted)'),
-                            boxShadow: m.downloaded ? '0 0 6px var(--green)' : 'none',
-                            flexShrink: 0,
+                            width: 8, height: 8, borderRadius: '50%',
+                            background: model.downloaded ? 'var(--green)' : (model.size_downloaded_gb > 0 ? 'var(--amber)' : 'var(--text-muted)'),
+                            boxShadow: model.downloaded ? '0 0 6px var(--green)' : 'none',
                           }} />
-                          <span style={{ color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{m.label}</span>
+                          <span style={{ color: 'var(--text-primary)', fontWeight: 500 }}>{model.label}</span>
+                          {model.downloaded && <span style={{ fontSize: 10, color: 'var(--green)' }}>已下载</span>}
                         </div>
-                        <span style={{ color: 'var(--text-muted)', fontSize: 11, flexShrink: 0, marginLeft: 8 }}>
-                          {m.downloaded
-                            ? `${m.size_gb} GB ✓`
-                            : m.size_downloaded_gb > 0
-                              ? `${m.size_downloaded_gb}/${m.size_gb} GB`
-                              : `${m.size_gb} GB`}
+                        <span style={{ color: 'var(--text-muted)', fontSize: 11 }}>
+                          {model.downloaded
+                            ? `${model.size_gb} GB`
+                            : `${model.size_gb} GB`}
                         </span>
                       </div>
-                    ))
-                  )}
 
-                  {/* Download button — only show if not all models cached */}
-                  {(() => {
-                    const engineModels = models.filter(m => m.engine === 'whisperx');
-                    const allCached = engineModels.length > 0 && engineModels.every(m => m.downloaded);
-                    const currentSize = settings?.whisper_model_size || 'medium';
-                    const currentModelCached = engineModels.find(m => m.name === currentSize)?.downloaded;
-
-                    if (allCached) {
-                      return (
-                        <div style={{ fontSize: 11, color: 'var(--green)', padding: '8px 0', textAlign: 'center' }}>
-                          ✓ 当前引擎模型已全部缓存
-                        </div>
-                      );
-                    }
-
-                    return (
-                      <div style={{ display: 'flex', gap: 8, marginTop: 0 }}>
+                      {/* 下载按钮 */}
+                      {!model.downloaded && (
                         <button
-                          onClick={() => startDownload('whisperx', currentSize)}
+                          onClick={() => startDownload('whisperx', model.name)}
                           disabled={dlState.status === 'downloading'}
                           style={{
-                            flex: 1, padding: '8px 0', borderRadius: 'var(--radius-sm)',
-                            border: '1px solid var(--border)', background: 'var(--bg-base)',
-                            color: 'var(--text-primary)', cursor: dlState.status === 'downloading' ? 'not-allowed' : 'pointer',
-                            fontFamily: 'var(--font-ui)', fontSize: 11, opacity: dlState.status === 'downloading' ? 0.5 : 1,
+                            width: '100%', padding: '8px 0', borderRadius: 'var(--radius-sm)',
+                            border: '1px solid var(--amber)', background: 'rgba(232,153,58,0.08)',
+                            color: 'var(--amber)', cursor: dlState.status === 'downloading' ? 'not-allowed' : 'pointer',
+                            fontFamily: 'var(--font-ui)', fontSize: 12, fontWeight: 500,
+                            opacity: dlState.status === 'downloading' ? 0.5 : 1,
                           }}
-                        >{currentModelCached ? `已缓存 ${currentSize}，下载全部` : `下载 WhisperX 模型 (${currentSize})`}</button>
-                      </div>
-                    );
-                  })()}
+                        >下载 {model.name} 模型 ({model.size_gb} GB)</button>
+                      )}
+                    </>
+                  )}
 
                   <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 8, lineHeight: 1.5 }}>
-                    首次使用时会自动下载。也可点击上方按钮提前下载，<br />下载后缓存到本地，后续使用无需等待。
+                    使用最高精度 large-v3 模型。首次使用前需下载到本地，<br />下载完成后即可上传音频。
                   </div>
                 </div>
               </div>

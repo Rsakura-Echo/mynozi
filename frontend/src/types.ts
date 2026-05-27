@@ -34,8 +34,7 @@ export interface ModelStatus {
 }
 
 export interface ModelStatusResponse {
-  models: ModelStatus[];
-  current_model: string;
+  model: ModelStatus | null;
 }
 
 export interface Speaker {

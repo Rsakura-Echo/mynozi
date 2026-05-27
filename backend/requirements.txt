@@ -8,15 +8,15 @@ pydantic-settings>=2.2
 httpx>=0.27
 aiofiles>=23.2
 
-# FunASR（国内 ASR + 说话人分离，模型从 ModelScope 下载，推荐）
+# FunASR（仅用于句子切割/框选识别，模型从 ModelScope 下载）
 funasr>=1.0
 modelscope
 
-# PyTorch — FunASR 模型推理需要（start.bat/sh 会自动处理版本）
+# PyTorch — 模型推理需要（start.bat/sh 会自动处理版本）
 # torch / torchaudio 由启动脚本安装，此处不重复声明
 
-# WhisperX（可选，仅当使用 WhisperX 引擎时需要）
-# 注意：需手动 pip install whisperx torch torchaudio
+# WhisperX — ASR 主引擎，由设置页「下载模型」按需安装
+# 安装逻辑见 routers/settings.py:_install_whisperx()
 
 # Audio
 pydub>=0.25
