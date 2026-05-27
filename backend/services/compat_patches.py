@@ -56,6 +56,27 @@ def _patch_torchaudio():
             print("[compat] Created placeholder torchaudio.AudioMetaData")
 
 
+def _patch_torch_load():
+    """PyTorch >=2.6: torch.load 默认 weights_only 改为 True。
+
+    pyannote.audio 等库用 torch.load 加载模型权重时不传 weights_only，
+    新版 PyTorch 默认 True 导致 omegaconf/listconfig 等类型被拒绝。
+    此补丁恢复 weights_only=False 的旧行为。
+    """
+    try:
+        import torch
+    except ImportError:
+        return
+    _orig_load = torch.load
+
+    def _load(*args, **kwargs):
+        kwargs.setdefault('weights_only', False)
+        return _orig_load(*args, **kwargs)
+
+    torch.load = _load
+    print("[compat] Patched torch.load (weights_only default -> False)")
+
+
 def _patch_transcription_options():
     """faster-whisper >=1.0: TranscriptionOptions 新增 multilingual / hotwords 参数。
 
@@ -110,6 +131,7 @@ def _patch_pyannote_inference():
 def apply_all():
     """应用全部兼容补丁。自然幂等（检测 API 是否存在才打），可多次调用。"""
     _patch_huggingface_hub()
+    _patch_torch_load()              # PyTorch 2.6+ weights_only 默认值变更
     _patch_torchaudio()
     _patch_transcription_options()
     _patch_pyannote_inference()
