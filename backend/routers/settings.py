@@ -228,15 +228,17 @@ async def download_model(body: DownloadModelRequest):
 
 
 def _install_whisperx(python_exe: str):
-    """安装 whisperx + 依赖，锁定兼容版本。
+    """安装 whisperx + 运行时依赖，通过 compat_patches 处理版本差异。
 
-    whisperx 3.2.0 与新版 pyannote-audio (>=4.0) 和 huggingface-hub (>=1.0) 不兼容。
-    关键顺序：huggingface-hub 版本锁定必须放在 faster-whisper 之前，
-    否则后者会拉入不兼容的新版 hub，导致 is_offline_mode 等 API 缺失。
-
-    每步安装前更新 _download_state.message，前端轮询时能看到具体进度。
+    不再尝试锁定具体版本——Python 3.14 强制使用新版 torch/hub，
+    旧版 API 缺失由 compat_patches 层统一处理。每个 pip 步骤前
+    更新 _download_state.message，前端轮询可看到实时进度。
     """
     import subprocess, importlib
+
+    # 先打兼容补丁（每个补丁防御式检测，依赖未安装时自动跳过）
+    from services.compat_patches import apply_all as _apply_compat
+    _apply_compat()
 
     PIP_INDEX = ["-i", "https://pypi.tuna.tsinghua.edu.cn/simple",
                  "--trusted-host", "pypi.tuna.tsinghua.edu.cn"]
@@ -256,64 +258,43 @@ def _install_whisperx(python_exe: str):
             raise RuntimeError(f"pip install failed:\n" + "\n".join(err))
 
     def _step(msg: str):
-        """更新前端进度消息。"""
         _download_state.update(message=msg)
         print(f"[settings] {msg}")
 
-    # 1. PyTorch（约 1-2 分钟）
+    # 1. PyTorch + torchaudio
     try:
-        import torch  # noqa: F401
-        print("[settings] torch already installed")
+        import torch, torchaudio  # noqa: F401
+        print("[settings] torch + torchaudio already installed")
     except ImportError:
-        _step("正在安装 PyTorch + torchaudio（约 1-2 分钟，约 200MB）...")
+        _step("正在安装 PyTorch + torchaudio（约 200MB，约 1-2 分钟）...")
         try:
             _pip(["torch", "torchaudio"])
         except RuntimeError:
-            _step("清华镜像安装 PyTorch 失败，尝试官方源...")
+            _step("清华镜像失败，尝试 PyTorch 官方源...")
             subprocess.check_call(
                 [python_exe, "-m", "pip", "install", "torch", "torchaudio",
                  "--index-url", "https://download.pytorch.org/whl/cpu"], timeout=900)
 
-    # 2. huggingface-hub 版本锁定（必须在其他依赖之前）
-    # whisperx 3.2.0 需要 is_offline_mode，只在 hub>=0.20,<1.0 中存在
-    # 直接 pip install --upgrade 从 1.x 降级到 0.x 时可能不生效，先卸载再安装
-    _step("正在配置 huggingface-hub 兼容版本...")
-    subprocess.run(
-        [python_exe, "-m", "pip", "uninstall", "huggingface-hub", "-y"],
-        capture_output=True, timeout=60,
-    )
-    _pip(["huggingface-hub>=0.20,<1.0"], upgrade=False)
-    # 验证 is_offline_mode 可导入
-    import huggingface_hub as _hub
-    assert hasattr(_hub, "is_offline_mode"), \
-        f"huggingface-hub {_hub.__version__} 缺少 is_offline_mode，请手动运行: pip install 'huggingface-hub>=0.20,<1.0'"
-    print(f"[settings] huggingface-hub {_hub.__version__} ready")
+    # 打补丁后再继续（torchaudio 已安装，list_audio_backends/AudioMetaData 补丁现在生效）
+    _apply_compat()
 
-    # 3. ctranslate2（破掉 whisperx 对 ctranslate2==4.4.0 的死锁）
-    try:
-        import ctranslate2  # noqa: F401
-        print("[settings] ctranslate2 already installed")
-    except ImportError:
-        _step("正在安装 ctranslate2...")
-        _pip(["ctranslate2"], upgrade=False)
+    # 2. huggingface-hub（<1.0 避免 major API 变更，compat_patches 处理 is_offline_mode 缺失）
+    _step("正在安装 huggingface-hub...")
+    _pip(["huggingface-hub<1.0"], upgrade=True)
 
-    # 4. faster-whisper（版本不限，compat_patches 处理 API 兼容）
-    try:
-        import faster_whisper  # noqa: F401
-        print(f"[settings] faster-whisper already installed")
-    except ImportError:
-        _step("正在安装 faster-whisper...")
-        _pip(["faster-whisper"], upgrade=False)
+    # 3. ctranslate2（破 whisperx 对 ctranslate2==4.4.0 的死锁）
+    _step("正在安装 ctranslate2...")
+    _pip(["ctranslate2"], upgrade=False)
 
-    # 5. whisperx --no-deps（绕过 ctranslate2==4.4.0 死锁，依赖已在前几步安装）
-    try:
-        import whisperx  # noqa: F401
-        print(f"[settings] whisperx already installed")
-    except ImportError:
-        _step("正在安装 whisperx...")
-        _pip(["whisperx"], upgrade=False, no_deps=True)
+    # 4. faster-whisper
+    _step("正在安装 faster-whisper...")
+    _pip(["faster-whisper"], upgrade=False)
 
-    # 6. 补装 whisperx 运行时依赖（--no-deps 跳过的依赖在此覆盖）
+    # 5. whisperx --no-deps（依赖已由前几步手动管理，绕过 ctranslate2==4.4.0）
+    _step("正在安装 whisperx...")
+    _pip(["whisperx"], upgrade=False, no_deps=True)
+
+    # 6. 补装运行时依赖（--no-deps 跳过的 + 必需包）
     _step("正在检查并补装运行时依赖（transformers/pandas/librosa/pyannote）...")
     for mod_name, pip_name in [
         ("transformers", "transformers"),
@@ -328,10 +309,10 @@ def _install_whisperx(python_exe: str):
             print(f"[settings] {mod_name} missing, installing...")
             _pip([pip_name], upgrade=False)
 
-    _step("库安装完成，准备下载模型...")
-    # 应用兼容补丁（处理 torchaudio/pyannote/huggingface-hub 兼容性）
-    from services.compat_patches import apply_all as _apply_compat
+    # 再次打补丁（pyannote 刚装上，Inference 补丁现在生效）
     _apply_compat()
+
+    _step("库安装完成，准备下载模型...")
     import whisperx
     print(f"[settings] whisperx ready")
 
