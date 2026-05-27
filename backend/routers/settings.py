@@ -350,15 +350,7 @@ def _download_whisperx_model(size: str):
             )
             return
 
-    # ── Step 2: 确保依赖版本兼容 ──
-    _download_state.update(
-        current="依赖兼容",
-        message="正在检查 pyannote-audio / huggingface-hub 版本兼容性...",
-        total=2, done=1,
-    )
-    _ensure_compat_versions(sys.executable)
-
-    # ── Step 3: 下载模型 ──
+    # ── Step 2: 下载模型 ──
     _download_state.update(
         current=f"faster-whisper-{size}",
         message=f"正在下载 WhisperX {size} 模型（首次约 3-5 分钟，共约 3GB）...",
