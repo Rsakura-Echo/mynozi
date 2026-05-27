@@ -27,20 +27,24 @@ def _compute_hash(content: bytes) -> str:
 def _get_asr_model() -> str:
     """读取用户选择的 ASR 引擎。如果选 WhisperX 但未安装则回退 FunASR。"""
     settings_file = settings.data_dir / "settings.json"
-    model = "whisperx"  # 默认
+    model = "funasr"  # 默认
     if settings_file.exists():
         try:
             data = json.loads(settings_file.read_text(encoding="utf-8"))
-            model = data.get("asr_model", "whisperx")
+            model = data.get("asr_model", "funasr")
         except Exception:
             pass
 
-    # WhisperX 未安装 → 静默回退到 FunASR
+    # WhisperX 未安装 → 回退到 FunASR（输出明确日志）
     if model == "whisperx":
         try:
             import whisperx  # noqa: F401
+            print(f"[upload] ASR engine: whisperx (whisperx {whisperx.__version__})")
         except ImportError:
-            return "funasr"
+            print("[upload] WhisperX 未安装，回退到 FunASR。请先 pip install whisperx")
+            model = "funasr"
+    else:
+        print(f"[upload] ASR engine: {model}")
 
     return model
 
