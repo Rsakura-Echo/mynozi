@@ -238,12 +238,14 @@ def _install_whisperx(python_exe: str):
     PIP_INDEX = ["-i", "https://pypi.tuna.tsinghua.edu.cn/simple",
                  "--trusted-host", "pypi.tuna.tsinghua.edu.cn"]
 
-    def _pip(packages: list[str], upgrade: bool = True) -> None:
+    def _pip(packages: list[str], upgrade: bool = True, no_deps: bool = False) -> None:
         cmd = [python_exe, "-m", "pip", "install"]
         if upgrade:
             cmd.append("--upgrade")
         cmd.extend(PIP_INDEX)
         cmd.extend(packages)
+        if no_deps:
+            cmd.append("--no-deps")
         print(f"[settings] pip {' '.join(cmd)}")
         r = subprocess.run(cmd, capture_output=True, text=True, timeout=900)
         if r.returncode != 0:
@@ -277,17 +279,19 @@ def _install_whisperx(python_exe: str):
     except ImportError:
         _pip(["faster-whisper"], upgrade=False)
 
-    # 4. whisperx（不加 --upgrade，避免 Windows 依赖冲突）
+    # 4. whisperx --no-deps（绕过 ctranslate2==4.4.0 死锁，依赖已在 1-3 步安装）
     try:
         import whisperx  # noqa: F401
         print(f"[settings] whisperx already installed")
     except ImportError:
-        _pip(["whisperx"], upgrade=False)
+        _pip(["whisperx"], upgrade=False, no_deps=True)
 
-    # 5. 补装可能缺失的依赖 + 锁定兼容版本
+    # 5. 补装 whisperx 运行时依赖 + 锁定兼容版本（--no-deps 跳过的依赖在此覆盖）
     for mod_name, pip_name in [
         ("transformers", "transformers"),
         ("nltk", "nltk"),
+        ("pandas", "pandas"),
+        ("librosa", "librosa"),
         ("pyannote.audio", "pyannote-audio>=3.1,<4.0"),
     ]:
         try:
