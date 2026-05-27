@@ -2,7 +2,7 @@
 
 whisperx 3.2.0 是唯一提供 Python 3.14 wheel 的版本，但它依赖的
 faster-whisper / pyannote.audio / huggingface-hub 均已升级 API，
-导致 3 处不兼容。本模块集中处理这些补丁，确保 SETTINGS 和 ASR
+导致 4 处不兼容。本模块集中处理这些补丁，确保 SETTINGS 和 ASR
 两条代码路径使用完全相同的补丁逻辑。
 
 用法:
@@ -14,6 +14,23 @@ import os
 import inspect as _inspect
 
 _applied: bool = False
+
+
+def _patch_torchaudio_backends():
+    """torchaudio >=2.5 移除了 list_audio_backends()，pyannote.audio 3.x 导入时调用它。
+
+    pyannote.audio 3.x 的 core/io.py 在模块级别执行
+    torchaudio.list_audio_backends() 检查可用音频后端。
+    新版 torchaudio 已删除该函数（后端始终可用），此补丁恢复它。
+    必须在 pyannote.audio 导入之前调用。
+    """
+    try:
+        import torchaudio
+    except ImportError:
+        return
+    if not hasattr(torchaudio, 'list_audio_backends'):
+        torchaudio.list_audio_backends = lambda: ['ffmpeg', 'sox', 'soundfile']
+        print("[compat] Patched torchaudio.list_audio_backends")
 
 
 def _patch_transcription_options():
@@ -74,6 +91,7 @@ def apply_all():
     global _applied
     if _applied:
         return
+    _patch_torchaudio_backends()       # 必须最先：pyannote 导入时需要
     _patch_transcription_options()
     _patch_pyannote_inference()
     _applied = True

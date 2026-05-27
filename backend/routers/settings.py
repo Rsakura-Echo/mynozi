@@ -329,6 +329,9 @@ def _install_whisperx(python_exe: str):
             _pip([pip_name], upgrade=False)
 
     _step("库安装完成，准备下载模型...")
+    # 应用兼容补丁（处理 torchaudio/pyannote/huggingface-hub 兼容性）
+    from services.compat_patches import apply_all as _apply_compat
+    _apply_compat()
     import whisperx
     print(f"[settings] whisperx ready")
 
@@ -341,11 +344,17 @@ def _download_whisperx_model(size: str):
     """
     import subprocess, sys, threading, time
 
+    # 应用兼容补丁（必须在 import whisperx 之前，pyannote/torchaudio 导入时需要）
+    from services.compat_patches import apply_all as _apply_compat
+    _apply_compat()
+    print("[settings] Applied whisperx 3.2.0 compatibility patches")
+
     # ── Step 1: 安装 whisperx 库 ──
     try:
         import whisperx  # noqa: F401
         print("[settings] whisperx already installed")
-    except ImportError:
+    except Exception:
+        # 捕获 ImportError + AttributeError（如 torchaudio 缺少 list_audio_backends）
         _download_state.update(
             current="whisperx 库",
             message="正在安装 WhisperX 库（首次约 2-5 分钟，含 torch/torchaudio）...",
@@ -361,11 +370,6 @@ def _download_whisperx_model(size: str):
                 message=f"WhisperX 库安装失败: {e}",
             )
             return
-
-    # 应用兼容补丁（提前打好，下载完就能直接用）
-    from services.compat_patches import apply_all as _apply_compat
-    _apply_compat()
-    print("[settings] Applied whisperx 3.2.0 compatibility patches")
 
     # ── Step 2: 子线程下载模型 + 主线程心跳 ──
     _download_state.update(
