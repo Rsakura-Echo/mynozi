@@ -35,6 +35,12 @@ class Settings(BaseSettings):
     asr_device: str = "auto"  # auto / cpu / cuda / mps（auto 时自动选择最优）
     hf_token: str = ""  # HuggingFace token（pyannote diarization 需要）
 
+    # pyannote 说话人分离聚类参数
+    # threshold: 聚类阈值，越低 = 更多聚类 = 识别更多说话人（默认 0.50，官方默认 0.7045）
+    pyannote_clustering_threshold: float = 0.50
+    # min_cluster_size: 最小聚类大小，降低 = 短台词说话人也能被识别（默认 5，官方默认 12）
+    pyannote_min_cluster_size: int = 5
+
     # 上传限制
     max_upload_size_mb: int = 2000  # 2GB
 

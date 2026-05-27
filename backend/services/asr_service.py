@@ -91,39 +91,10 @@ def _process_sync(project_id: str, file_path: str, file_hash: str = ""):
                 compute_type = "float16" if device == "cuda" else "int8"
                 print(f"[asr] Loading WhisperX model={_model_size} device={device} compute_type={compute_type}")
 
-                # Monkey-patch faster-whisper 1.0+ TranscriptionOptions 兼容 whisperx 3.2.0
-                import faster_whisper.transcribe as _fwt
-                _orig_init = _fwt.TranscriptionOptions.__init__
-                def _patched_init(self, *args, **kwargs):
-                    kwargs.setdefault("multilingual", True)
-                    kwargs.setdefault("hotwords", None)
-                    return _orig_init(self, *args, **kwargs)
-                _fwt.TranscriptionOptions.__init__ = _patched_init
-                print("[asr] Patched faster-whisper TranscriptionOptions")
-
-                # Monkey-patch pyannote.audio.Inference 自适应不同版本的参数名
-                # whisperx 3.2.0 传 use_auth_token；pyannote 3.1- 接受 use_auth_token；
-                # pyannote 3.2+ 改名 token；都不接受时通过 HF_TOKEN 环境变量传递
-                try:
-                    from pyannote.audio import Inference
-                    import inspect as _inspect
-                    _orig_inf_init = Inference.__init__
-                    _inf_params = set(_inspect.signature(_orig_inf_init).parameters.keys())
-                    print(f"[asr] pyannote.audio.Inference params: {sorted(_inf_params)}")
-                    def _patched_inf_init(self, *args, **kwargs):
-                        if 'use_auth_token' in kwargs:
-                            token_val = kwargs.pop('use_auth_token')
-                            if 'token' in _inf_params:
-                                kwargs['token'] = token_val
-                            elif 'use_auth_token' in _inf_params:
-                                kwargs['use_auth_token'] = token_val
-                            elif token_val:
-                                os.environ.setdefault('HF_TOKEN', token_val)
-                        return _orig_inf_init(self, *args, **kwargs)
-                    Inference.__init__ = _patched_inf_init
-                    print("[asr] Patched pyannote.audio.Inference (adaptive)")
-                except ImportError:
-                    pass
+                # 应用 whisperx 3.2.0 兼容补丁（集中管理，与 settings.py 共享）
+                from services.compat_patches import apply_all as _apply_compat
+                _apply_compat()
+                print("[asr] Applied whisperx 3.2.0 compatibility patches")
 
                 old_offline = os.environ.get("HF_HUB_OFFLINE", None)
                 old_endpoint = os.environ.get("HF_ENDPOINT", "")
@@ -177,8 +148,8 @@ def _process_sync(project_id: str, file_path: str, file_hash: str = ""):
                         # 注意：instantiate() 返回新 pipeline 对象，必须接住！
                         diarize_model.model = diarize_model.model.instantiate({
                             "clustering": {
-                                "threshold": 0.50,          # 默认 0.7045，降低 = 更多聚类 = 更多说话人
-                                "min_cluster_size": 5,      # 默认 12，降低 = 短台词说话人也能被识别
+                                "threshold": settings.pyannote_clustering_threshold,
+                                "min_cluster_size": settings.pyannote_min_cluster_size,
                             },
                         })
                         diarize_segments = diarize_model(audio_str)

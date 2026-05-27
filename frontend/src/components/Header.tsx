@@ -258,42 +258,9 @@ export default function Header() {
                     ))
                   )}
 
-                  {/* FunASR models */}
-                  <div style={{ fontSize: 10, fontWeight: 500, color: 'var(--text-muted)', marginBottom: 4, marginTop: 12 }}>
-                    FunASR (ModelScope 国内源)
-                  </div>
-                  {models.filter(m => m.engine === 'funasr').length === 0 ? (
-                    <div style={{ fontSize: 11, color: 'var(--text-muted)', padding: '4px 0' }}>加载中...</div>
-                  ) : (
-                    models.filter(m => m.engine === 'funasr').map(m => (
-                      <div key={m.name} style={{
-                        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                        padding: '6px 0', fontSize: 12,
-                      }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1, minWidth: 0 }}>
-                          <span style={{
-                            width: 6, height: 6, borderRadius: '50%',
-                            background: m.downloaded ? 'var(--green)' : (m.size_downloaded_gb > 0 ? 'var(--amber)' : 'var(--text-muted)'),
-                            boxShadow: m.downloaded ? '0 0 6px var(--green)' : 'none',
-                            flexShrink: 0,
-                          }} />
-                          <span style={{ color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{m.label}</span>
-                        </div>
-                        <span style={{ color: 'var(--text-muted)', fontSize: 11, flexShrink: 0, marginLeft: 8 }}>
-                          {m.downloaded
-                            ? `${m.size_gb} GB ✓`
-                            : m.size_downloaded_gb > 0
-                              ? `${m.size_downloaded_gb}/${m.size_gb} GB`
-                              : `~${m.size_gb} GB`}
-                        </span>
-                      </div>
-                    ))
-                  )}
-
-                  {/* Download buttons — only show if not all models cached */}
+                  {/* Download button — only show if not all models cached */}
                   {(() => {
-                    const currentEngine = settings?.asr_model || 'whisperx';
-                    const engineModels = models.filter(m => m.engine === currentEngine);
+                    const engineModels = models.filter(m => m.engine === 'whisperx');
                     const allCached = engineModels.length > 0 && engineModels.every(m => m.downloaded);
                     const currentSize = settings?.whisper_model_size || 'medium';
                     const currentModelCached = engineModels.find(m => m.name === currentSize)?.downloaded;
@@ -308,30 +275,16 @@ export default function Header() {
 
                     return (
                       <div style={{ display: 'flex', gap: 8, marginTop: 0 }}>
-                        {currentEngine === 'whisperx' ? (
-                          <button
-                            onClick={() => startDownload('whisperx', currentSize)}
-                            disabled={dlState.status === 'downloading'}
-                            style={{
-                              flex: 1, padding: '8px 0', borderRadius: 'var(--radius-sm)',
-                              border: '1px solid var(--border)', background: 'var(--bg-base)',
-                              color: 'var(--text-primary)', cursor: dlState.status === 'downloading' ? 'not-allowed' : 'pointer',
-                              fontFamily: 'var(--font-ui)', fontSize: 11, opacity: dlState.status === 'downloading' ? 0.5 : 1,
-                            }}
-                          >{currentModelCached ? `已缓存 ${currentSize}，下载全部` : `下载 WhisperX 模型 (${currentSize})`}</button>
-                        ) : (
-                          <button
-                            onClick={() => startDownload('funasr')}
-                            disabled={dlState.status === 'downloading'}
-                            style={{
-                              flex: 1, padding: '8px 0', borderRadius: 'var(--radius-sm)',
-                              border: '1px solid var(--amber-dim)', background: 'rgba(232,153,58,0.06)',
-                              color: 'var(--amber)', cursor: dlState.status === 'downloading' ? 'not-allowed' : 'pointer',
-                              fontFamily: 'var(--font-ui)', fontSize: 11, fontWeight: 500,
-                              opacity: dlState.status === 'downloading' ? 0.5 : 1,
-                            }}
-                          >下载 FunASR 模型（国内源）</button>
-                        )}
+                        <button
+                          onClick={() => startDownload('whisperx', currentSize)}
+                          disabled={dlState.status === 'downloading'}
+                          style={{
+                            flex: 1, padding: '8px 0', borderRadius: 'var(--radius-sm)',
+                            border: '1px solid var(--border)', background: 'var(--bg-base)',
+                            color: 'var(--text-primary)', cursor: dlState.status === 'downloading' ? 'not-allowed' : 'pointer',
+                            fontFamily: 'var(--font-ui)', fontSize: 11, opacity: dlState.status === 'downloading' ? 0.5 : 1,
+                          }}
+                        >{currentModelCached ? `已缓存 ${currentSize}，下载全部` : `下载 WhisperX 模型 (${currentSize})`}</button>
                       </div>
                     );
                   })()}

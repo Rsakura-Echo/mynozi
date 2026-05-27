@@ -339,7 +339,7 @@ export default function ProjectEditor() {
           <div style={{ fontSize: 40, marginBottom: 16 }}>⏳</div>
           <h4>正在分析音频...</h4>
           <p style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 8 }}>
-            {progressStage || 'FunASR 语音识别 + 说话人分离'}
+            {progressStage || 'WhisperX 正在分析...'}
           </p>
           <div style={{ height: 4, background: 'var(--border)', borderRadius: 2, width: 300, margin: '0 auto', overflow: 'hidden' }}>
             <div style={{
