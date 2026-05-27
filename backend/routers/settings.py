@@ -329,11 +329,13 @@ def _install_whisperx(python_exe: str):
                        "--trusted-host", "mirrors.aliyun.com"]),
     ]
 
-    def _try_pip(packages: list[str]) -> None:
+    def _try_pip(packages: list[str], upgrade: bool = True) -> None:
         last_error = None
         for name, extra_args in sources:
             print(f"[settings] pip install {packages} via {name}...")
-            cmd = [python_exe, "-m", "pip", "install", "--upgrade"]
+            cmd = [python_exe, "-m", "pip", "install"]
+            if upgrade:
+                cmd.append("--upgrade")
             cmd.extend(extra_args)
             cmd.extend(packages)
             print(f"[settings]   {' '.join(cmd)}")
@@ -385,12 +387,12 @@ def _install_whisperx(python_exe: str):
     except ImportError:
         _try_pip(["faster-whisper"])
 
-    # Step 4: 安装 whisperx（带 deps，faster-whisper 已锁定兼容版本）
+    # Step 4: 安装 whisperx（不加 --upgrade，避免 Windows 上 pip 依赖冲突）
     try:
         import whisperx  # noqa: F401
         print(f"[settings] whisperx {getattr(whisperx, '__version__', '?')} already installed")
     except ImportError:
-        _try_pip(["whisperx"])
+        _try_pip(["whisperx"], upgrade=False)
 
     # Step 5: 验证关键依赖链 + 锁定兼容版本
     # huggingface-hub>=1.0 把 use_auth_token 改为 token，pyannote.audio>=4.0 不兼容 whisperx 3.2.0
