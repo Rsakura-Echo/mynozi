@@ -14,7 +14,6 @@ from models import Project, Speaker, Sentence
 from config import settings
 from routers.settings import check_models_cached
 from services.asr_service import process_audio_with_asr
-from services.funasr_service import process_audio_with_funasr
 
 router = APIRouter(prefix="/api/projects/{project_id}", tags=["upload"])
 
@@ -25,28 +24,10 @@ def _compute_hash(content: bytes) -> str:
 
 
 def _get_asr_model() -> str:
-    """读取用户选择的 ASR 引擎。如果选 WhisperX 但未安装则回退 FunASR。"""
-    settings_file = settings.data_dir / "settings.json"
-    model = "funasr"  # 默认
-    if settings_file.exists():
-        try:
-            data = json.loads(settings_file.read_text(encoding="utf-8"))
-            model = data.get("asr_model", "funasr")
-        except Exception:
-            pass
-
-    # WhisperX 未安装 → 回退到 FunASR（输出明确日志）
-    if model == "whisperx":
-        try:
-            import whisperx  # noqa: F401
-            print(f"[upload] ASR engine: whisperx (whisperx {whisperx.__version__})")
-        except ImportError:
-            print("[upload] WhisperX 未安装，回退到 FunASR。请先 pip install whisperx")
-            model = "funasr"
-    else:
-        print(f"[upload] ASR engine: {model}")
-
-    return model
+    """固定使用 WhisperX 引擎（不再回退 FunASR）。"""
+    import whisperx  # noqa: F401
+    print(f"[upload] ASR engine: whisperx (whisperx {whisperx.__version__})")
+    return "whisperx"
 
 
 async def _copy_from_cache(
@@ -201,10 +182,7 @@ async def upload_file(
     project.last_error = None
     await session.commit()
 
-    if asr_model == "funasr":
-        background_tasks.add_task(process_audio_with_funasr, project_id, str(src_path), file_hash)
-    else:
-        background_tasks.add_task(process_audio_with_asr, project_id, str(src_path), file_hash)
+    background_tasks.add_task(process_audio_with_asr, project_id, str(src_path), file_hash)
 
     return {"message": "上传成功，开始 AI 分析", "project_id": project_id, "cached": False}
 
@@ -217,10 +195,8 @@ async def get_processing_status(project_id: str, session: AsyncSession = Depends
     if not project:
         raise HTTPException(status_code=404, detail="项目不存在")
 
-    # 读取实时进度（兼容两种引擎）
-    from services.funasr_service import _progress_store as funasr_store
     from services.asr_service import _progress_store as asr_store
-    progress = funasr_store.get(project_id) or asr_store.get(project_id)
+    progress = asr_store.get(project_id)
     if progress and project.status == "processing":
         return {
             "status": project.status,

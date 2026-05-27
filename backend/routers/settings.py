@@ -31,22 +31,17 @@ MODEL_SIZE_DESCS = {
 }
 
 DEFAULT_SETTINGS = {
-    "asr_model": "funasr",
-    "asr_model_label": "FunASR (阿里达摩院)",
-    "asr_model_desc": "中文识别 SOTA，口音/方言/噪声环境表现更优。模型从 ModelScope 国内源下载，无需 HuggingFace token。",
+    "asr_model": "whisperx",
+    "asr_model_label": "WhisperX (OpenAI)",
+    "asr_model_desc": "多语言通用模型，词级说话人分离，支持 pyannote 调优。",
     "whisper_model_size": "medium",
     "runninghub_api_key": "",
     "runninghub_workflow_id": "",
     "available_models": [
         {
-            "value": "funasr",
-            "label": "FunASR (阿里达摩院)",
-            "desc": "中文识别 SOTA，口音/方言/噪声环境表现更优。模型从 ModelScope 国内源下载，无需 token。"
-        },
-        {
             "value": "whisperx",
-            "label": "WhisperX (OpenAI) — 需手动安装",
-            "desc": "多语言通用模型，支持说话人分离。需先 pip install whisperx torch torchaudio，Python 3.13 暂不支持。"
+            "label": "WhisperX (OpenAI)",
+            "desc": "多语言通用模型，词级说话人分离，支持 pyannote diarization 调优。"
         }
     ]
 }
@@ -212,7 +207,11 @@ def _load() -> dict:
     if SETTINGS_FILE.exists():
         try:
             data = json.loads(SETTINGS_FILE.read_text(encoding="utf-8"))
-            # 确保新字段有默认值
+            # 硬编码 WhisperX：强制覆盖旧配置中的 funasr 残留
+            data["asr_model"] = "whisperx"
+            data["asr_model_label"] = DEFAULT_SETTINGS["asr_model_label"]
+            data["asr_model_desc"] = DEFAULT_SETTINGS["asr_model_desc"]
+            data["available_models"] = DEFAULT_SETTINGS["available_models"]
             if "whisper_model_size" not in data:
                 data["whisper_model_size"] = DEFAULT_SETTINGS["whisper_model_size"]
             if "runninghub_api_key" not in data:
