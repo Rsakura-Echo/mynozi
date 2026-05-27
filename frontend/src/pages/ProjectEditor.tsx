@@ -17,6 +17,7 @@ export default function ProjectEditor() {
   const [playingSid, setPlayingSid] = useState<string | null>(null);
   const [progressStage, setProgressStage] = useState('');
   const [progressPct, setProgressPct] = useState(0);
+  const [uploadProgress, setUploadProgress] = useState(-1); // -1 = 未上传
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
   const sentences = project?.sentences || [];
@@ -69,13 +70,14 @@ export default function ProjectEditor() {
   const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !id) return;
+    setUploadProgress(0);
     setProject(prev => prev ? { ...prev, status: 'uploading' } : null);
-    toast.show('上传中...');
     try {
-      await uploadFile(id, file);
-      toast.show('上传成功，开始 AI 分析...');
+      await uploadFile(id, file, setUploadProgress);
+      setUploadProgress(-1);
       load();
     } catch (err: any) {
+      setUploadProgress(-1);
       const detail = err?.response?.data?.detail;
       if (detail?.code === 'model_not_cached') {
         toast.show(detail.message || '模型未下载，请先在设置中下载模型');
@@ -281,16 +283,14 @@ export default function ProjectEditor() {
       </div>
 
       {/* Upload zone (when new, uploading, or user clicked re-upload) */}
-      {(project.status === 'uploading' || project.status === 'error') && (
+      {project.status === 'error' && (
         <label style={{
           display: 'block', border: '2px dashed var(--border)', borderRadius: 'var(--radius)',
           padding: '40px 24px', textAlign: 'center', cursor: 'pointer',
           background: 'var(--bg-card)', marginBottom: 24, transition: 'all 0.3s',
         }}>
           <div style={{ fontSize: 40, marginBottom: 12 }}>🎙️</div>
-          <h4 style={{ fontSize: 15, marginBottom: 4 }}>
-            {project.status === 'error' ? '处理出错，点击重新上传' : '上传音视频文件'}
-          </h4>
+          <h4 style={{ fontSize: 15, marginBottom: 4 }}>处理出错，点击重新上传</h4>
           {project.last_error && (
             <p style={{ fontSize: 11, color: 'var(--red)', marginBottom: 8, fontFamily: 'var(--font-mono)', wordBreak: 'break-all' }}>
               {project.last_error}
@@ -299,6 +299,39 @@ export default function ProjectEditor() {
           <p style={{ fontSize: 12, color: 'var(--text-muted)' }}>支持 MP4、MOV、WAV、MP3 等格式 · 最大 2GB</p>
           <input type="file" accept="audio/*,video/*" onChange={handleUpload} style={{ display: 'none' }} />
         </label>
+      )}
+
+      {/* Initial upload state (no upload in progress) */}
+      {project.status === 'uploading' && uploadProgress < 0 && (
+        <label style={{
+          display: 'block', border: '2px dashed var(--border)', borderRadius: 'var(--radius)',
+          padding: '40px 24px', textAlign: 'center', cursor: 'pointer',
+          background: 'var(--bg-card)', marginBottom: 24, transition: 'all 0.3s',
+        }}>
+          <div style={{ fontSize: 40, marginBottom: 12 }}>🎙️</div>
+          <h4 style={{ fontSize: 15, marginBottom: 4 }}>上传音视频文件</h4>
+          <p style={{ fontSize: 12, color: 'var(--text-muted)' }}>支持 MP4、MOV、WAV、MP3 等格式 · 最大 2GB</p>
+          <input type="file" accept="audio/*,video/*" onChange={handleUpload} style={{ display: 'none' }} />
+        </label>
+      )}
+
+      {/* Upload progress bar */}
+      {project.status === 'uploading' && uploadProgress >= 0 && (
+        <div style={{ textAlign: 'center', padding: 60 }}>
+          <div style={{ fontSize: 40, marginBottom: 16 }}>📤</div>
+          <h4>正在上传文件...</h4>
+          <p style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 8 }}>
+            {uploadProgress}%
+          </p>
+          <div style={{ height: 4, background: 'var(--border)', borderRadius: 2, width: 300, margin: '0 auto', overflow: 'hidden' }}>
+            <div style={{
+              height: '100%',
+              width: `${Math.max(5, uploadProgress || 0)}%`,
+              background: 'var(--amber)', borderRadius: 2,
+              transition: 'width 0.3s ease',
+            }} />
+          </div>
+        </div>
       )}
 
       {project.status === 'processing' && (

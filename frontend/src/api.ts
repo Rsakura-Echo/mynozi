@@ -10,10 +10,16 @@ export const renameProject = (id: string, name: string) => api.put(`/projects/${
 export const deleteProject = (id: string) => api.delete(`/projects/${id}`);
 
 // Upload
-export const uploadFile = (projectId: string, file: File) => {
+export const uploadFile = (projectId: string, file: File, onProgress?: (pct: number) => void) => {
   const form = new FormData();
   form.append('file', file);
-  return api.post(`/projects/${projectId}/upload`, form);
+  return api.post(`/projects/${projectId}/upload`, form, {
+    onUploadProgress: (e) => {
+      if (e.total && onProgress) {
+        onProgress(Math.round((e.loaded * 100) / e.total));
+      }
+    },
+  });
 };
 export const getProjectStatus = (projectId: string) =>
   api.get(`/projects/${projectId}/status`);

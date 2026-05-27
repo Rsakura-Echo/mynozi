@@ -220,8 +220,8 @@ def _process_sync(project_id: str, file_path: str, file_hash: str = ""):
 # 句子构建
 # ═══════════════════════════════════════════════════════
 
-MAX_SENTENCE_DURATION = 15.0
-SHORT_GAP_MERGE = 1.0   # 两句间隔 < 1s 的同说话人句子合并
+MAX_SENTENCE_DURATION = 8.0   # 超过此值切分（对话句子不应超过 8s）
+MERGE_MAX_GAP = 0.5          # 合并时两句间隔不能超过 0.5s
 
 
 def _build_sentences(segments: list[dict]) -> list[dict]:
@@ -303,6 +303,7 @@ def _merge_adjacent_same_speaker(sentences: list[dict]) -> list[dict]:
 
     合并条件：
     - 同一说话人
+    - 两句间隔 ≤ MERGE_MAX_GAP
     - 合并后总时长 ≤ MAX_SENTENCE_DURATION
     """
     if not sentences:
@@ -317,9 +318,11 @@ def _merge_adjacent_same_speaker(sentences: list[dict]) -> list[dict]:
         prev = merged[-1]
         prev_dur = prev["end"] - prev["start"]
         cur_dur = s["end"] - s["start"]
+        gap = s["start"] - prev["end"]
 
         if (
             s["speaker"] == prev["speaker"]
+            and gap <= MERGE_MAX_GAP
             and prev_dur + cur_dur <= MAX_SENTENCE_DURATION
         ):
             prev["text"] += s["text"]

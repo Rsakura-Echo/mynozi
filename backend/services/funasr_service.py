@@ -13,9 +13,10 @@ from config import settings
 os.environ.setdefault("MODELSCOPE_OFFLINE", "1")
 
 # ── 后处理参数 ──
-MAX_SENTENCE_DURATION = 15.0   # 超过此值尝试在逗号处切分
+MAX_SENTENCE_DURATION = 8.0    # 超过此值尝试在逗号处切分（对话句子不应超过 8s）
 MIN_SENTENCE_DURATION = 0.3    # 短于此值合并到相邻句
 MIN_SENTENCE_CHARS = 2         # 少于此字符数视为无效
+MERGE_MAX_GAP = 0.5            # 合并时两句间隔不能超过 0.5s
 
 SENTENCE_PAUSE_PUNCT = set("，,；;：:")
 
@@ -93,6 +94,7 @@ def _process_sync(project_id: str, file_path: str, file_hash: str = ""):
                     model="iic/speech_paraformer-large-vad-punc-spk_asr_nat-zh-cn",
                     disable_update=True,
                     device=device,
+                    vad_kwargs={"max_single_segment_time": 5000},  # VAD 单段最长 5s，避免多人混入同一段
                 )
 
                 # ── Stage 4: ASR + VAD + 标点 + 说话人分离（模型一次性完成）──
@@ -120,6 +122,18 @@ def _process_sync(project_id: str, file_path: str, file_hash: str = ""):
 
                 # ── Stage 5: 解析 + 后处理 ──
                 _update_progress(project_id, "后处理...", 70)
+
+                # 日志：模型原始输出统计
+                raw_durations = [float(si.get("end", 0)) - float(si.get("start", 0)) for si in sentence_info]
+                raw_spks = set()
+                for si in sentence_info:
+                    spk_id = si.get("spk", 0)
+                    if isinstance(spk_id, (int, float)):
+                        raw_spks.add(int(spk_id))
+                print(f"[funasr] Raw sentence_info: {len(sentence_info)} entries, "
+                      f"avg dur={sum(raw_durations)/max(len(raw_durations),1):.1f}s, "
+                      f"max dur={max(raw_durations) if raw_durations else 0:.1f}s, "
+                      f"speakers={len(raw_spks)}")
 
                 # 将模型输出转换为统一格式
                 segments = []
@@ -246,9 +260,11 @@ def _post_process(segments: list[dict]) -> list[dict]:
         prev = merged[-1]
         prev_dur = prev["end"] - prev["start"]
         cur_dur = seg["end"] - seg["start"]
+        gap = seg["start"] - prev["end"]
 
         if (
             seg["speaker"] == prev["speaker"]
+            and gap <= MERGE_MAX_GAP
             and prev_dur + cur_dur <= MAX_SENTENCE_DURATION
         ):
             prev["text"] += seg["text"]
